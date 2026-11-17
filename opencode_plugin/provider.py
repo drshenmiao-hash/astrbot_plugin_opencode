@@ -66,7 +66,7 @@ class OpenCodeCLIProvider(Provider):
             raise OpenCodeError("config")
 
     async def get_models(self):
-        # ACP catalog only; no model prompt or automatic model selection.
+        # Only offer the ACP-validated model this provider can actually send.
         return await runtime.available_model_ids()
 
     async def text_chat(

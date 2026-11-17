@@ -83,6 +83,9 @@ class ProcessOwner:
                 },
                 "build": {"disable": True},
                 "plan": {"disable": True},
+                # OpenCode would otherwise make a second model call to title
+                # the conversation. AstrBot owns the conversation lifecycle.
+                "title": {"disable": True},
             },
             "autoupdate": False,
             "share": "disabled",

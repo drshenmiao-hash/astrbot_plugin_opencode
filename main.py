@@ -10,7 +10,7 @@ from .opencode_plugin.provider import OpenCodeCLIProvider
 __all__ = ["OpenCodeCLIPlugin", "OpenCodeCLIProvider"]
 
 
-@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 纯文本 Provider", "0.1.0")
+@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 纯文本 Provider", "0.1.1")
 class OpenCodeCLIPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)

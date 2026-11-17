@@ -8,7 +8,7 @@ from copy import deepcopy
 
 from .engine import Engine
 from .errors import OpenCodeError
-from .models import ModelResolutionError, catalog_ids, resolve_model
+from .models import ModelResolutionError, resolve_model
 from .settings import settings_from
 from .usage import UsageStore, format_summary
 
@@ -129,11 +129,8 @@ def resolve_model_id(requested):
 async def available_model_ids():
     if _available_models is None:
         await validate_configured_model()
-    return [
-        model_id
-        for model_id in catalog_ids(_available_models)
-        if model_id.casefold() not in {"auto", "auto-smart", "default"}
-    ]
+    model = settings()["model"]
+    return [model] if model else []
 
 
 def settings():

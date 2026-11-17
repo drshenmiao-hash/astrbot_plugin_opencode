@@ -119,7 +119,7 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
         self.catalog_patch = patch.object(
             runtime,
             "_fetch_available_models",
-            new=AsyncMock(return_value=[MODEL]),
+            new=AsyncMock(return_value=[MODEL, "mock/other-model"]),
         )
         self.catalog_patch.start()
         self.addCleanup(self.catalog_patch.stop)
@@ -155,6 +155,7 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_first_load_creates_exact_source_and_native_model(self):
         await runtime.initialize(self.context)
+        self.assertEqual(await runtime.available_model_ids(), [MODEL])
         self.assertEqual(len(self.opencode_sources()), 1)
         source = self.opencode_sources()[0]
         self.assertEqual(source["type"], "opencode_cli")

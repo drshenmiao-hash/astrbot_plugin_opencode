@@ -6,7 +6,7 @@
 
 ## 安装
 
-适用 AstrBot 4.29.4 系列、Python 3.10+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。需要在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。宿主机安装的工具不会自动进入 AstrBot 容器。
+适用 AstrBot 4.29.4 系列、Python 3.12+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
 - 原生 Ubuntu 可通过 `apt install bubblewrap` 安装隔离工具，并从 [OpenCode 官方发布页](https://github.com/anomalyco/opencode/releases/tag/v1.19.6) 安装对应架构的二进制。
 - Ubuntu 上的 Docker 或 1Panel 部署可以在独立测试编排中使用下面的镜像配方。配方面向 Linux amd64，基础镜像须有 apt。用你的 AstrBot 镜像标签替换示例变量，保留原有数据卷与启动设置。如果基础镜像使用非 root 用户，用 `--build-arg ASTRBOT_USER=原用户` 保留该用户。
@@ -14,7 +14,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.1.0 .
+  -t astrbot-with-opencode:0.1.1 .
 ```
 
 使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
@@ -45,7 +45,13 @@ OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过�
 python -m unittest discover -s tests
 ```
 
-测试使用模拟 ACP 对端。本项目还在隔离环境中用官方 CLI 1.19.6 实测了 ACP 初始化、模型枚举、指定模型和聊天 agent 确认。实际 QQ 联动、服务商账号认证和生成请求由安装者在自己的环境验证。
+默认测试使用模拟 ACP 对端。下面的可选测试通过 bubblewrap 启动官方 CLI 1.19.6，把上游指向本地模拟模型。它确认两轮聊天复用同一会话、发送两次模型请求、禁用自动生成标题以及工具能力。
+
+```bash
+OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official_cli -v
+```
+
+真实服务商账号和 QQ 联动需在安装环境中验证。
 
 更新时上传新版 ZIP 后重载插件。使用测试编排检查 CLI 和 bubblewrap 的兼容性。需要恢复时可换回旧 ZIP，统计和认证目录可独立保留。
 
