@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenCode 用量管理</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="/api/plugin/page/bridge-sdk.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <div>
+        <h1>OpenCode 用量管理</h1>
+        <p>插件本地统计 · UTC · 服务商账单请在对应平台查看</p>
+      </div>
+      <div class="controls">
+        <label for="range">统计时段</label>
+        <select id="range">
+          <option value="7">近 7 天</option>
+          <option value="30" selected>近 30 天</option>
+          <option value="90">近 90 天</option>
+        </select>
+        <button id="refresh" type="button">刷新</button>
+      </div>
+    </header>
+    <p class="message" id="status" role="status">正在读取本地统计…</p>
+    <p class="message warning" id="error" role="alert" hidden></p>
+    <div id="dashboard" hidden>
+      <section class="runtime" aria-labelledby="runtime-title">
+        <div class="runtime-heading">
+          <h2 id="runtime-title">运行状态</h2>
+          <span id="runtime-state" class="state"></span>
+        </div>
+        <dl>
+          <div><dt>当前模型</dt><dd id="model">—</dd></div>
+          <div><dt>执行中</dt><dd id="active">0</dd></div>
+          <div><dt>排队中</dt><dd id="queued">0</dd></div>
+          <div><dt>缓存会话</dt><dd id="sessions">0</dd></div>
+          <div><dt>最近失败</dt><dd id="last-failure">—</dd></div>
+        </dl>
+      </section>
+      <section class="metrics" aria-label="用量概览">
+        <div class="metric"><span>总请求</span><strong id="requests">0</strong><small id="failed">失败 0 次</small></div>
+        <div class="metric"><span>成功率</span><strong id="success">—</strong><small id="success-count">成功 0 次</small></div>
+        <div class="metric"><span>平均耗时</span><strong id="duration">—</strong><small id="queue-time">平均排队 —</small></div>
+        <div class="metric"><span>发送 / 回复</span><strong id="bytes">—</strong><small id="reuse">会话复用 0 次</small></div>
+      </section>
+      <details class="runtime traffic">
+        <summary>查看流量与进程复用</summary>
+        <dl>
+          <div><dt>原始输入</dt><dd id="input-bytes">—</dd></div>
+          <div><dt>ACP 请求流量</dt><dd id="wire-bytes">—</dd></div>
+          <div><dt>CLI 进程复用次数</dt><dd id="process-reused">—</dd></div>
+        </dl>
+      </details>
+      <div class="panels">
+        <section class="panel trend-panel" aria-labelledby="trend-title">
+          <div class="heading">
+            <div><h2 id="trend-title">请求趋势</h2><p id="interval"></p></div>
+            <div class="legend"><span class="swatch"></span>成功 <span class="swatch fail"></span>失败</div>
+          </div>
+          <div id="chart" class="chart" aria-hidden="true"></div>
+          <div class="axis" aria-hidden="true"><span id="axis-start"></span><span id="axis-end"></span></div>
+          <details>
+            <summary>查看每日数据</summary>
+            <div class="scroll">
+              <table aria-label="每日请求"><thead><tr><th scope="col">日期</th><th scope="col">请求</th><th scope="col">失败</th></tr></thead><tbody id="daily"></tbody></table>
+            </div>
+          </details>
+        </section>
+        <section class="panel groups-panel" aria-labelledby="groups-title">
+          <div class="heading">
+            <div><h2 id="groups-title">请求明细</h2><p>按次数排序，最多显示 20 项</p></div>
+            <select id="dimension" aria-label="统计维度">
+              <option value="model">按模型</option>
+              <option value="session">按匿名会话</option>
+              <option value="code">按结果</option>
+            </select>
+          </div>
+          <div class="scroll">
+            <table aria-label="分组用量"><thead><tr><th scope="col" id="dimension-title">模型</th><th scope="col">请求</th><th scope="col">失败</th><th scope="col">会话复用</th></tr></thead><tbody id="groups"></tbody></table>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

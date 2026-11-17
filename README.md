@@ -2,7 +2,7 @@
 
 让 AstrBot 的 QQ 机器人通过官方 `opencode acp` 使用明确指定的模型。插件会在校验模型后注册原生 `opencode_cli` 来源，模型以 `opencode_cli:provider/model` 显示。需要使用时，在目标会话里选择它即可。
 
-第一版支持纯文本聊天、会话复用、system 增量、排队提示「呜呜等一下」、断流单次重试和本地统计。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
+插件支持纯文本聊天、会话复用、system 增量、排队提示「呜呜等一下」、断流单次重试和本地用量管理页。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
 
 ## 安装
 
@@ -14,7 +14,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.1.2 .
+  -t astrbot-with-opencode:0.2.0 .
 ```
 
 使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
@@ -39,7 +39,9 @@ OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过�
 
 运行时创建临时 HOME 和空工作目录，只复制选定服务商的认证条目。OpenCode 使用专用文本 agent、拒绝工具权限，ACP 也拒绝权限请求。应用按固定清单传递环境变量，以 bubblewrap 隔离文件和进程视图。CLI 需要网络访问所选服务商。容器内如果无法创建隔离，插件会返回错误。
 
-管理员可使用 `/opencode_usage` 查看本地请求次数、字节数、失败码和复用数据，或加 `session`、`day`、`model` 查看分组。这些是插件记录的运行数据。费用和额度以服务商账单为准。统计库位于 `data/plugin_data/astrbot_plugin_opencode/`。
+登录 AstrBot WebUI，在 OpenCode 插件详情打开 **用量与运行状态**。页面显示当前模型、CLI 状态、排队和执行中的请求数，也可以查看近 7、30 或 90 天的请求趋势、成功率、耗时、流量和进程／会话复用情况。明细支持按模型、匿名会话和结果分组。聊天中的管理员命令 `/opencode_usage` 仍可使用，附加 `session`、`day`、`model` 可查看分组。
+
+日期按 UTC 划分。每次处理尝试单独记录，包含失败、重试和缓存命中。统计存放于 `data/plugin_data/astrbot_plugin_opencode/`，升级可继续使用原有统计。页面只读本地数据，费用和额度以模型服务商的账单为准。
 
 ## 验证与升级
 

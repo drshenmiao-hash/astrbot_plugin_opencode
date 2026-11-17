@@ -3,6 +3,7 @@
 import logging
 
 MESSAGES = {
+    "usage_unavailable": "本地统计库暂不可用。",
     "auth_permissions": "请检查 OpenCode 专用 auth.json，文件必须可读且仅所有者可访问（0600）。",
     "registration_save_failed": "OpenCode 来源或模型配置未能保存，请检查 AstrBot 配置写入权限并重载插件。",
     "source_id_conflict": "opencode_cli 来源 ID 已被其他提供商占用；未覆盖已有配置，请处理冲突后重载。",

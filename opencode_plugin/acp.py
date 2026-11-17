@@ -91,7 +91,7 @@ class ACPClient:
                         "fs": {"readTextFile": False, "writeTextFile": False},
                         "terminal": False,
                     },
-                    "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.1.2"},
+                    "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.2.0"},
                 },
                 timeout=30,
             )

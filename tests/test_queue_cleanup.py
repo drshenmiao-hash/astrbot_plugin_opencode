@@ -3,7 +3,7 @@
 import asyncio
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from opencode_plugin.engine import Engine
 from opencode_plugin.errors import OpenCodeError
@@ -77,3 +77,23 @@ class QueueCleanupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(caught.exception.code, "queue_timeout")
         self.engine.cfg["queue_timeout_seconds"] = 1
         await self.assert_replacement_queued()
+
+    async def test_close_records_running_and_queued_requests_once(self):
+        queued = self.submit("queued")
+        await self.wait_for_slot_to_fill()
+
+        async def notify(*_args):
+            self.release.set()
+
+        self.client.notify = notify
+        with patch("opencode_plugin.engine.record") as record:
+            await self.engine.close()
+        for task in (self.first, queued):
+            with self.assertRaises(OpenCodeError) as error:
+                await task
+            self.assertEqual(error.exception.code, "closed")
+        finished = [
+            call.kwargs for call in record.call_args_list if call.args == ("request_finished",)
+        ]
+        self.assertCountEqual([entry["session"] for entry in finished], ["active", "queued"])
+        self.assertTrue(all(entry["code"] == "closed" for entry in finished))

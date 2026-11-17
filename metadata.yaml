@@ -1,8 +1,8 @@
 name: astrbot_plugin_opencode
 display_name: OpenCode CLI
 short_desc: 使用官方 OpenCode CLI 的 AstrBot 纯文本聊天 Provider。
-desc: 通过 ACP 使用指定的 OpenCode 模型，支持原生注册、会话复用、请求排队和本地统计。
-version: 0.1.2
+desc: 通过 ACP 使用指定的 OpenCode 模型，支持会话复用、请求排队和 WebUI 用量管理。
+version: 0.2.0
 author: drshenmiao-hash
 astrbot_version: ">=4.29.4,<5"
 tags:

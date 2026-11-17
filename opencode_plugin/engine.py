@@ -425,7 +425,8 @@ class Engine:
 
     async def close(self):
         self.closed = True
-        for job in list(self._jobs.values()):
+        jobs = list(self._jobs.values())
+        for job in jobs:
             job.cancel.set()
             job.started.set()
             if not job.future.done():
@@ -434,4 +435,6 @@ class Engine:
             worker.cancel()
         await asyncio.gather(*self.workers, return_exceptions=True)
         self.workers.clear()
+        for job in jobs:
+            self._account(job, "closed")
         await self._reset_client("shutdown")

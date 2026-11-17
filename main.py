@@ -6,19 +6,25 @@ from astrbot.api.star import Context, Star, register
 
 from .opencode_plugin import runtime
 from .opencode_plugin.provider import OpenCodeCLIProvider
+from .opencode_plugin.web import UsagePage
 
 __all__ = ["OpenCodeCLIPlugin", "OpenCodeCLIProvider"]
 
 
-@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 纯文本 Provider", "0.1.2")
+@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 纯文本 Provider", "0.2.0")
 class OpenCodeCLIPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         runtime.configure(config)
         runtime.configure_usage(context)
+        self._usage_page = UsagePage()
 
     async def initialize(self):
         await runtime.initialize(self.context)
+        self._usage_page.register(self.context)
+
+    async def terminate(self):
+        self._usage_page.close()
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("opencode_usage")
