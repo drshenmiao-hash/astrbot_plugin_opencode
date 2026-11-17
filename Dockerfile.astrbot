@@ -1,0 +1,17 @@
+ARG ASTRBOT_IMAGE
+FROM ${ASTRBOT_IMAGE}
+ARG ASTRBOT_USER=root
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bubblewrap ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Official Linux amd64 baseline archive and checksum from release v1.19.6.
+RUN curl -fsSL --retry 3 https://github.com/anomalyco/opencode/releases/download/v1.19.6/opencode-linux-x64-baseline.tar.gz -o /tmp/opencode.tar.gz \
+    && printf '%s  %s\n' 8443113b3f3dfebf8b0fa91c4377e5519a62b9231732d9344a5df001e4a852b3 /tmp/opencode.tar.gz | sha256sum -c - \
+    && tar -xzf /tmp/opencode.tar.gz -C /usr/local/bin opencode \
+    && chmod 755 /usr/local/bin/opencode \
+    && rm /tmp/opencode.tar.gz
+
+USER ${ASTRBOT_USER}

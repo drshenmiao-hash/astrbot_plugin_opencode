@@ -1,0 +1,40 @@
+"""Validate paths and limits before opening the isolated CLI."""
+
+from pathlib import Path
+
+from .errors import OpenCodeError
+from .protocol import explicit_model
+
+
+def settings_from(config):
+    try:
+        model = config.get("model_id", "").strip()
+        if model:
+            explicit_model(model)
+        cfg = {"model": model, "requested_model": model}
+        cfg["protected_paths"] = [str(Path(__file__).resolve().parents[1])]
+        for name, default, minimum, maximum in (
+            ("timeout_seconds", 120, 1, 1800),
+            ("queue_timeout_seconds", 120, 1, 3600),
+            ("max_concurrency", 2, 1, 8),
+            ("queue_capacity", 64, 1, 1024),
+            ("context_max_bytes", 262144, 1024, 4194304),
+            ("output_max_bytes", 2097152, 1024, 4194304),
+            ("max_sessions", 128, 1, 4096),
+        ):
+            value = int(config.get(name, default))
+            if not minimum <= value <= maximum:
+                raise ValueError
+            cfg[name] = value
+        for name, default in (
+            ("cli_binary", "/usr/local/bin/opencode"),
+            ("bubblewrap_binary", "/usr/bin/bwrap"),
+            ("auth_path", "~/.local/share/astrbot-opencode/opencode/auth.json"),
+        ):
+            value = Path(config.get(name, default)).expanduser()
+            if not value.is_absolute():
+                raise ValueError
+            cfg[name] = str(value)
+        return cfg
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        raise OpenCodeError("config") from None

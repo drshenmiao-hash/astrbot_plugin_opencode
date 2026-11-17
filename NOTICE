@@ -1,0 +1,12 @@
+astrbot_plugin_opencode is an AGPL-3.0 derivative of astrbot_plugin_cursor.
+Source: https://github.com/drshenmiao-hash/astrbot_plugin_cursor
+Revision: 6cb8a44f74c561aa77040fdc01466b49609adf6f
+
+Provider registration, configuration persistence and reload logic in the
+original plugin were adapted from astrbot_plugin_openai_oauth, AGPL-3.0.
+Source: https://github.com/wcqqq1214/astrbot_plugin_openai_oauth
+Revision: 173f343b8ffff76ddee288ab71dfcf7c57a5c589
+Original files: src/provider.py, src/runtime.py and src/provider_registry.py
+
+OpenCode is a separate product and is not bundled with this plugin.
+The MIT notice for earlier code is preserved in licenses/MIT-origin.txt.

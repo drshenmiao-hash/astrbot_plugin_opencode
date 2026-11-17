@@ -1,0 +1,64 @@
+{
+  "model_id": {
+    "description": "OpenCode 模型 ID（provider/model）",
+    "type": "string",
+    "default": "",
+    "hint": "填写 opencode models 中已登录服务商的确切 ID。留空仅注册来源。"
+  },
+  "cli_binary": {
+    "description": "官方 OpenCode 原生二进制绝对路径",
+    "type": "string",
+    "default": "/usr/local/bin/opencode"
+  },
+  "bubblewrap_binary": {
+    "description": "bubblewrap 绝对路径",
+    "type": "string",
+    "default": "/usr/bin/bwrap"
+  },
+  "auth_path": {
+    "description": "OpenCode 专用 auth.json 路径",
+    "type": "string",
+    "default": "~/.local/share/astrbot-opencode/opencode/auth.json",
+    "hint": "使用 AstrBot 运行用户的专用登录文件，权限 0600。"
+  },
+  "timeout_seconds": {
+    "description": "CLI 超时秒数（1–600）",
+    "type": "int",
+    "default": 120,
+    "hint": "从实际执行开始计时，不包含排队。超时发送 ACP 取消，5 秒内未确认则重置运行时；不自动重试。"
+  },
+  "max_concurrency": {
+    "description": "同时执行的请求数",
+    "type": "int",
+    "default": 2,
+    "hint": "同一会话始终串行；范围 1–8。"
+  },
+  "queue_capacity": {
+    "description": "等待队列容量",
+    "type": "int",
+    "default": 64,
+    "hint": "队列满时等待空位，达到排队时限才返回明确错误。"
+  },
+  "queue_timeout_seconds": {
+    "description": "排队超时秒数",
+    "type": "int",
+    "default": 120
+  },
+  "context_max_bytes": {
+    "description": "完整上下文 UTF-8 字节上限",
+    "type": "int",
+    "default": 262144,
+    "hint": "范围 1024–16777216。超限报 context_limit，不截断、不丢历史。"
+  },
+  "output_max_bytes": {
+    "description": "单次回复字节上限",
+    "type": "int",
+    "default": 2097152
+  },
+  "max_sessions": {
+    "description": "每个进程的会话数上限",
+    "type": "int",
+    "default": 128,
+    "hint": "达到后等待当前请求结束，再轮换进程并重新同步历史，避免常驻内存无限增长。"
+  }
+}
