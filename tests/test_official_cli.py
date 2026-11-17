@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from opencode_plugin.engine import Engine
+from opencode_plugin.errors import OpenCodeError, retry_stream_errors
 from opencode_plugin.settings import settings_from
 
 CLI = os.getenv("OPENCODE_TEST_BIN")
@@ -18,8 +19,9 @@ REPLY = "本地验证成功"
 
 @unittest.skipUnless(CLI, "Set OPENCODE_TEST_BIN to an official OpenCode 1.19.6 binary")
 class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
-    async def test_two_chat_turns_do_not_generate_a_title_or_send_tools(self):
+    async def test_two_chat_turns_and_rejected_api_key(self):
         requests = []
+        reject_auth = False
 
         async def serve(reader, writer):
             try:
@@ -31,6 +33,25 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
                 }
                 request = json.loads(await reader.readexactly(int(headers["content-length"])))
                 requests.append((request_line, headers.get("authorization"), request))
+                if reject_auth:
+                    body = json.dumps(
+                        {
+                            "error": {
+                                "message": "Incorrect API key provided: fixture-private-error",
+                                "type": "invalid_request_error",
+                                "code": "invalid_api_key",
+                            }
+                        }
+                    ).encode("utf-8")
+                    writer.write(
+                        (
+                            "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n"
+                            f"Connection: close\r\nContent-Length: {len(body)}\r\n\r\n"
+                        ).encode("ascii")
+                        + body
+                    )
+                    await writer.drain()
+                    return
                 events = [
                     {
                         "choices": [
@@ -108,10 +129,19 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
                         ]
                         self.assertEqual(await engine.submit(followup, "test"), REPLY)
                         self.assertEqual(engine.sessions["test"]["session_id"], session)
+                        self.assertEqual(
+                            len(requests), 2, "Unexpected extra generation from OpenCode"
+                        )
+                        reject_auth = True
+                        with self.assertRaises(OpenCodeError) as error:
+                            await retry_stream_errors(lambda: engine.submit(messages, "auth-test"))
+                        self.assertEqual(error.exception.code, "not_logged_in")
+                        self.assertNotIn("fixture-private-error", str(error.exception))
+                        self.assertNotIn("auth-test", engine.sessions)
                 finally:
                     await engine.close()
 
-        self.assertEqual(len(requests), 2, "Unexpected additional request from OpenCode")
+        self.assertEqual(len(requests), 3)
         for line, authorization, request in requests:
             self.assertEqual(line, "POST /v1/chat/completions HTTP/1.1")
             self.assertEqual(authorization, "Bearer fixture-key-only")

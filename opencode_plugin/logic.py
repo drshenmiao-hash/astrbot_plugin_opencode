@@ -193,12 +193,16 @@ def classify_error(raw, *, stage="request"):
         term in text
         for term in (
             "authentication required",
+            "authentication failed",
             "not authenticated",
             "not logged in",
             "unauthenticated",
             "token expired",
             "token has expired",
             "invalid access token",
+            "invalid api key",
+            "incorrect api key",
+            "invalid_api_key",
             "unauthorized",
         )
     ):

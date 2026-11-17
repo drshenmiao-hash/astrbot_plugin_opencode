@@ -163,6 +163,16 @@ class ACPTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error.exception.code, "connection_stalled")
         self.assertEqual(self.engine.sessions, {})
 
+    async def test_rejected_api_key_is_a_safe_failure_without_retry(self):
+        self.peer.replies.append({"error": "Incorrect API key provided: fixture-secret"})
+        messages = [{"role": "user", "content": "测试"}]
+        with self.assertRaises(OpenCodeError) as error:
+            await retry_stream_errors(lambda: self.submit(messages))
+        self.assertEqual(error.exception.code, "not_logged_in")
+        self.assertNotIn("fixture-secret", str(error.exception))
+        self.assertEqual(len(self.peer.prompts), 1)
+        self.assertFalse(self.engine.sessions)
+
     async def test_permissions_are_denied_and_tool_event_cancels_turn(self):
         self.peer.replies.append({"permission": True, "tool": True, "chunks": ["忽略"]})
         with self.assertRaises(OpenCodeError) as error:

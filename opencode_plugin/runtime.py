@@ -14,6 +14,7 @@ from .usage import UsageStore, format_summary
 
 PROVIDER_TYPE = "opencode_cli"
 DEFAULT_SOURCE_ID = PROVIDER_TYPE
+_SUSPENDED = "_opencode_suspended_for_model_change"
 logger = logging.getLogger("astrbot")
 _settings = None
 _engine = None
@@ -273,6 +274,23 @@ async def ensure_default_source_and_model(config):
                 modalities=["text"],
             )
             target.setdefault("enable", True)
+            if target.get(_SUSPENDED) and source.get("enable", True):
+                target.pop(_SUSPENDED)
+                target["enable"] = True
+
+    # Older versions left their generated entries enabled even when pinned to
+    # a different model. Keep their IDs and settings so references still exist
+    # and only restore entries that the plugin itself disabled.
+    for item in models:
+        if (
+            item is not target
+            and owned(item)
+            and item.get("model") != model_id
+            and item.get("id") == f"{PROVIDER_TYPE}:{item.get('model')}"
+            and item.get("enable", True)
+        ):
+            item["enable"] = False
+            item[_SUSPENDED] = True
     await _commit_configuration(config, {"provider_sources": sources, "provider": models})
     return target["id"] if target else None
 
@@ -317,7 +335,6 @@ async def initialize(context):
             ):
                 raise OpenCodeError("config")
     finally:
-        # Preserve None too: host reload() may otherwise select the new model.
-        manager.curr_provider_inst = (
-            instances.get(selected_id, selected) if selected_id else selected
-        )
+        # If the prior instance was disabled, don't restore a terminated object.
+        # The configured default ID stays in AstrBot's settings.
+        manager.curr_provider_inst = instances.get(selected_id) if selected_id else selected

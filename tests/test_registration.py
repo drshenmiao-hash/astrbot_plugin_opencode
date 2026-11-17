@@ -215,6 +215,41 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(self.manager.inst_map[key], instance)
         self.assertEqual(self.manager.reloads, [NATIVE_ID, NATIVE_ID])
 
+    async def test_switching_pin_disables_old_generated_entry_and_restores_it_on_switch_back(self):
+        await runtime.initialize(self.context)
+        old = self.manager.inst_map[NATIVE_ID]
+        self.manager.curr_provider_inst = old
+        self.conf["agent"]["config"]["model"]["provider_id"] = NATIVE_ID
+        stable_settings = deepcopy(self.conf["agent"])
+
+        other = "mock/other-model"
+        other_id = f"opencode_cli:{other}"
+        runtime.configure({"model_id": other})
+        await runtime.initialize(self.context)
+        self.assertEqual(await runtime.available_model_ids(), [other])
+        self.assertTrue(old.closed)
+        self.assertNotIn(NATIVE_ID, self.manager.inst_map)
+        self.assertIn(other_id, self.manager.inst_map)
+        self.assertIsNone(self.manager.curr_provider_inst)
+        self.assertEqual(self.conf["agent"], stable_settings)
+        self.assertEqual([m["id"] for m in self.opencode_models() if m["enable"]], [other_id])
+
+        runtime.configure({"model_id": MODEL})
+        await runtime.initialize(self.context)
+        self.assertEqual([m["id"] for m in self.opencode_models() if m["enable"]], [NATIVE_ID])
+        self.assertIn(NATIVE_ID, self.manager.inst_map)
+        self.assertNotIn(other_id, self.manager.inst_map)
+
+    async def test_manually_disabled_model_stays_disabled(self):
+        await runtime.initialize(self.context)
+        self.opencode_models()[0]["enable"] = False
+        runtime.configure({"model_id": "mock/other-model"})
+        await runtime.initialize(self.context)
+        runtime.configure({"model_id": MODEL})
+        await runtime.initialize(self.context)
+        self.assertFalse(self.opencode_models()[0]["enable"])
+        self.assertNotIn(NATIVE_ID, self.manager.inst_map)
+
     async def test_capabilities_are_text_only_in_saved_and_live_config(self):
         await runtime.initialize(self.context)
         source = self.opencode_sources()[0]

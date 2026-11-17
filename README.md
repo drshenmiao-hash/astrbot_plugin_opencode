@@ -14,7 +14,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.1.1 .
+  -t astrbot-with-opencode:0.1.2 .
 ```
 
 使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
@@ -31,6 +31,8 @@ XDG_DATA_HOME="$OPENCODE_AUTH_DATA" /usr/local/bin/opencode models
 2. 在插件设置填写 `model_id`，例如你在模型列表里看到且准备使用的 `opencode/big-pickle`。填写 CLI 和专用 `auth.json` 的绝对路径，或使用上面的默认路径。保存并重载。
 3. 校验会连接本地官方 CLI，枚举 ACP 模型选项，并确认使用专用聊天 agent。通过后插件自动注册模型。首次聊天前，请在目标会话手动选择它。
 
+切换 `model_id` 后，原先自动注册的模型保留其 ID 和配置并暂停使用。切回旧模型时，只恢复插件因模型切换而停用的条目。已保存的默认模型和会话选择由 AstrBot 管理，切换后可在目标会话手动选择新模型。
+
 OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过外部插件或浏览器 OAuth 登录的账户、代理环境变量、自定义服务商配置、图片与 AstrBot 工具调用均未接入。当前模型列表取自所安装 OpenCode 二进制的内置目录；如果所需模型缺失，先在测试环境核对 CLI 版本。
 
 ## 隔离与统计
@@ -45,7 +47,7 @@ OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过�
 python -m unittest discover -s tests
 ```
 
-默认测试使用模拟 ACP 对端。下面的可选测试通过 bubblewrap 启动官方 CLI 1.19.6，把上游指向本地模拟模型。它确认两轮聊天复用同一会话、发送两次模型请求、禁用自动生成标题以及工具能力。
+默认测试使用模拟 ACP 对端。下面的可选测试通过 bubblewrap 启动官方 CLI 1.19.6，把上游指向本地模拟模型。它确认两轮聊天复用同一会话、发送两次模型请求、禁用自动生成标题和工具能力，并检查上游拒绝 API Key 时返回脱敏认证错误。
 
 ```bash
 OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official_cli -v
