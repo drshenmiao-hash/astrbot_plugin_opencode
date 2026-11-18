@@ -1,10 +1,13 @@
 """AstrBot entry point for the OpenCode CLI provider."""
 
+import asyncio
+
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 from .opencode_plugin import runtime
+from .opencode_plugin.errors import OpenCodeError
 from .opencode_plugin.provider import OpenCodeCLIProvider
 from .opencode_plugin.web import UsagePage
 
@@ -20,11 +23,18 @@ class OpenCodeCLIPlugin(Star):
         self._usage_page = UsagePage()
 
     async def initialize(self):
-        await runtime.initialize(self.context)
+        try:
+            await runtime.stop_providers(self.context)
+            await runtime.initialize(self.context)
+        except OpenCodeError as exc:
+            runtime.record_startup_failure(exc.code)
+        except asyncio.TimeoutError:
+            runtime.record_startup_failure("startup_timeout")
         self._usage_page.register(self.context)
 
     async def terminate(self):
         self._usage_page.close()
+        await runtime.stop_providers(self.context)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("opencode_usage")

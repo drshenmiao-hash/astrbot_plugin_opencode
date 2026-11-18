@@ -20,6 +20,7 @@ const codes = {
   sandbox_unavailable: "隔离环境不可用",
 };
 const count = (value) => number.format(value ?? 0);
+const tokenCount = (value) => value == null ? "—" : count(value);
 let current;
 
 function write(id, value) {
@@ -64,9 +65,9 @@ function renderGroups() {
     let label = row.label;
     if (dimension === "code") label = resultLabel(label);
     if (!label) label = dimension === "session" ? "未识别会话" : "未记录 ACP 发送";
-    return [label, count(row.requests), count(row.failed), count(row.reused)];
+    return [label, count(row.requests), count(row.failed), count(row.reused), tokenCount(row.token_total)];
   });
-  table("groups", rows, 4);
+  table("groups", rows, 5);
 }
 
 function renderTrend(days) {
@@ -85,7 +86,7 @@ function renderTrend(days) {
     bars.append(bar);
   }
   byId("chart").replaceChildren(bars);
-  table("daily", days.map((day) => [day.label, count(day.requests), count(day.failed)]), 3);
+  table("daily", days.map((day) => [day.label, count(day.requests), count(day.failed), tokenCount(day.token_total)]), 4);
 }
 
 function render(data) {
@@ -93,11 +94,19 @@ function render(data) {
   const stats = data.totals;
   const live = data.runtime;
   write("model", data.model || "未配置");
-  write("runtime-state", live.process_alive ? "CLI 运行中" : data.validated ? "等待请求" : "模型待校验");
+  const runtime = live.process_alive ? "CLI 运行中" : data.validated ? "等待请求" : "模型待校验";
+  write("runtime-state", data.startup_error ? "启动失败" : runtime);
+  byId("startup-error").hidden = !data.startup_error;
+  write("startup-error", data.startup_error?.message || "");
   write("active", `${count(live.active)} / ${count(data.concurrency_limit)}`);
   write("queued", count(live.queue_depth));
   write("sessions", count(live.cached_sessions));
   write("last-failure", resultLabel(live.last_failure));
+  write("token-attempts", stats.token_attempts ? `已记录 ${count(stats.token_attempts)} 次` : "该时段暂无 Token 记录");
+  write("token-total", tokenCount(stats.token_total));
+  write("token-input", tokenCount(stats.token_input));
+  write("token-output", tokenCount(stats.token_output));
+  write("token-cached", tokenCount(stats.token_cached));
   write("requests", count(stats.requests));
   write("failed", `失败 ${count(stats.failed)} 次`);
   write("success", stats.requests ? `${count(stats.success / stats.requests * 100)}%` : "—");

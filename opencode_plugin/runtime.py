@@ -20,6 +20,7 @@ _settings = None
 _engine = None
 _available_models = None
 _usage_store = None
+_startup_failure = None
 
 
 def configure_usage(context, *, directory=None):
@@ -74,21 +75,34 @@ async def usage_dashboard(days):
         "runtime": engine_health(),
         "model": cfg["model"] or cfg["requested_model"],
         "validated": bool(cfg["model"]),
+        "startup_error": (
+            {"code": _startup_failure, "message": str(OpenCodeError(_startup_failure))}
+            if _startup_failure
+            else None
+        ),
         "concurrency_limit": cfg["max_concurrency"],
     }
 
 
 def configure(config):
-    global _settings, _available_models
+    global _settings, _available_models, _startup_failure
     _settings = settings_from(config)
     _settings["model"] = ""  # Never publish an unvalidated management/display ID.
     _available_models = None
+    _startup_failure = None
     try:
         from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
         _settings["protected_paths"].append(get_astrbot_data_path())
     except ImportError:
         pass
+
+
+def record_startup_failure(code):
+    global _startup_failure
+    _startup_failure = code
+    _settings["model"] = ""
+    logger.warning("opencode_provider_startup code=%s", code)
 
 
 async def _fetch_available_models():
@@ -132,6 +146,8 @@ async def validate_configured_model():
 
 
 def resolve_model_id(requested):
+    if _startup_failure:
+        raise OpenCodeError(_startup_failure)
     if _available_models is None:
         raise OpenCodeError("model_not_validated")
     try:
@@ -143,6 +159,8 @@ def resolve_model_id(requested):
 
 
 async def available_model_ids():
+    if _startup_failure:
+        raise OpenCodeError(_startup_failure)
     if _available_models is None:
         await validate_configured_model()
     model = settings()["model"]
@@ -175,9 +193,25 @@ async def release_engine(engine):
     global _engine
     engine.references -= 1
     if engine.references == 0:
-        await engine.close()
+        if not engine.closed:
+            await engine.close()
         if _engine is engine:
             _engine = None
+
+
+async def stop_providers(context):
+    manager = getattr(context, "provider_manager", None)
+    providers = [
+        instance
+        for instance in getattr(manager, "inst_map", {}).values()
+        if getattr(instance, "_astrbot_opencode_plugin", False) is True
+    ]
+    # Closing the engines first makes pending requests fail through AstrBot's
+    # usual fallback path. Keep the native IDs and selection in the host.
+    for engine in {p.engine for p in providers if p.engine is not None and not p.engine.closed}:
+        await engine.close()
+    for provider in providers:
+        await provider.terminate()
 
 
 def engine_health():

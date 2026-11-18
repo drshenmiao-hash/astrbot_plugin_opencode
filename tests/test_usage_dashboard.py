@@ -1,6 +1,7 @@
 """Coverage for bounded statistics and the authenticated dashboard route."""
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -51,6 +52,45 @@ class DashboardQueries(unittest.TestCase):
             with self.assertRaises(OSError):
                 pending.result(timeout=2)
         self.assertEqual(self.store.dashboard(7)["totals"]["requests"], 1)
+        summary = self.store.summary()
+        self.assertEqual(summary["rows"][0]["requests"], 1)
+        self.assertEqual(summary["write_failures"], 1)
+
+    def test_existing_store_keeps_legacy_rows_and_aggregates_recorded_counters(self):
+        self.store.record(event("legacy"))
+        self.store.close()
+        connection = sqlite3.connect(self.store.path)
+        try:
+            for key in ("token_total", "token_input", "token_output", "token_cached"):
+                connection.execute(f"ALTER TABLE requests DROP COLUMN {key}")
+            connection.commit()
+        finally:
+            connection.close()
+        migrated = UsageStore(self.tmp.name)
+        self.addCleanup(migrated.close)
+        no_tokens_yet = migrated.dashboard(7)
+        self.assertEqual(no_tokens_yet["totals"]["requests"], 1)
+        self.assertIsNone(no_tokens_yet["totals"]["token_total"])
+        migrated.record(
+            event("success", token_total=13, token_input=10, token_output=3, token_cached=5)
+        )
+        migrated.record(
+            event(
+                "zero",
+                model_id="mock/other",
+                code="cli_failed",
+                token_total=0,
+                token_input=0,
+                token_output=0,
+                token_cached=0,
+            )
+        )
+        report = migrated.dashboard(7)
+        self.assertEqual(report["totals"]["token_attempts"], 2)
+        self.assertEqual(report["totals"]["token_total"], 13)
+        self.assertEqual(report["totals"]["token_cached"], 5)
+        self.assertEqual(report["trend"][-1]["token_total"], 13)
+        self.assertEqual([row["token_total"] for row in report["groups"]["model"]], [13, 0])
 
     def test_group_output_is_bounded_and_excludes_sensitive_fields(self):
         for i in range(25):

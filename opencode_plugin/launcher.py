@@ -47,6 +47,11 @@ class ProcessOwner:
         self.process = None
         self.scratch = None
 
+    @property
+    def usage_db(self):
+        if self.scratch is not None:
+            return Path(self.scratch.name) / "home/.local/share/opencode/opencode.db"
+
     async def start(self):
         cli = Path(self.cfg["cli_binary"]).resolve()
         bwrap = self.cfg["bubblewrap_binary"]

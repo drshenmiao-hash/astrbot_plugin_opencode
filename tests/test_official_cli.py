@@ -11,6 +11,7 @@ from unittest.mock import patch
 from opencode_plugin.engine import Engine
 from opencode_plugin.errors import OpenCodeError, retry_stream_errors
 from opencode_plugin.settings import settings_from
+from opencode_plugin.token_usage import TurnTokens
 
 CLI = os.getenv("OPENCODE_TEST_BIN")
 MODEL = "deepseek/deepseek-flash"
@@ -64,7 +65,11 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
                     },
                     {
                         "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                        "usage": {"prompt_tokens": 4, "completion_tokens": 4, "total_tokens": 8},
+                        "usage": {
+                            "prompt_tokens": 3 + len(requests),
+                            "completion_tokens": 4,
+                            "total_tokens": 7 + len(requests),
+                        },
                     },
                 ]
                 chunks = (
@@ -120,15 +125,28 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
                     ):
                         self.assertIn(MODEL, await asyncio.wait_for(engine.available_models(), 15))
                         messages = [{"role": "user", "content": "test first turn"}]
-                        self.assertEqual(await engine.submit(messages, "test"), REPLY)
+                        first_stats = {}
+                        self.assertEqual(
+                            await engine.submit(messages, "test", result_stats=first_stats), REPLY
+                        )
+                        self.assertEqual(first_stats["tokens"], TurnTokens(8, 4, 4, 0))
                         session = engine.sessions["test"]["session_id"]
                         followup = [
                             *messages,
                             {"role": "assistant", "content": REPLY},
                             {"role": "user", "content": "test second turn"},
                         ]
-                        self.assertEqual(await engine.submit(followup, "test"), REPLY)
+                        second_stats = {}
+                        self.assertEqual(
+                            await engine.submit(followup, "test", result_stats=second_stats), REPLY
+                        )
+                        self.assertEqual(second_stats["tokens"], TurnTokens(9, 5, 4, 0))
                         self.assertEqual(engine.sessions["test"]["session_id"], session)
+                        replay_stats = {}
+                        self.assertEqual(
+                            await engine.submit(followup, "test", result_stats=replay_stats), REPLY
+                        )
+                        self.assertEqual(replay_stats, {})
                         self.assertEqual(
                             len(requests), 2, "Unexpected extra generation from OpenCode"
                         )

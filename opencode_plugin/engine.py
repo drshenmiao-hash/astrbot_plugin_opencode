@@ -12,6 +12,7 @@ from .logic import history_state, reconcile_history
 from .metrics import record
 from .protocol import encode
 from .queueing import RequestQueue
+from .token_usage import TOKEN_FIELDS, TurnTokens, previous_user, turn_tokens
 from .transcript import render_messages
 
 
@@ -37,6 +38,7 @@ class Job:
     sequence: int | None = None
     stats_session: str | None = None
     model_id: str | None = None
+    tokens: TurnTokens | None = None
 
 
 class Engine:
@@ -67,7 +69,16 @@ class Engine:
                     for i in range(self.cfg["max_concurrency"])
                 ]
 
-    async def submit(self, messages, scope, *, on_queued=None, sequence=None, stats_session=None):
+    async def submit(
+        self,
+        messages,
+        scope,
+        *,
+        on_queued=None,
+        sequence=None,
+        stats_session=None,
+        result_stats=None,
+    ):
         await self._start_workers()
         now = time.monotonic()
         size = len(encode(messages))
@@ -102,7 +113,10 @@ class Engine:
             await asyncio.wait_for(self.queue.put(job), max(0.001, job.deadline - time.monotonic()))
             record("queued", request_id=job.request_id, queue_depth=self.queue.qsize())
             await asyncio.wait_for(job.started.wait(), max(0.001, job.deadline - time.monotonic()))
-            return await job.future
+            reply = await job.future
+            if result_stats is not None and job.tokens is not None:
+                result_stats["tokens"] = job.tokens
+            return reply
         except asyncio.TimeoutError:
             job.cancel.set()
             if not job.future.done():
@@ -274,6 +288,10 @@ class Engine:
             job.reset_reason = "no_stable_session_key"
         session_id = cached["session_id"] if cached else await client.new_session(self.cfg["model"])
         text = render_messages(delta, incremental=bool(cached), clock_fields=plan["clock_fields"])
+        db_path = self.owner.usage_db if self.owner else None
+        previous = (
+            None if db_path is None else await asyncio.to_thread(previous_user, db_path, session_id)
+        )
         job.sent_bytes = len(text.encode())
         stats = {}
         turn = asyncio.create_task(client.prompt(session_id, text, stats=stats))
@@ -309,6 +327,10 @@ class Engine:
             job.wire_bytes = stats.get("wire_bytes", job.wire_bytes)
             job.output_bytes = stats.get("output_bytes", job.output_bytes)
             job.model_id = stats.get("model_id")
+            if previous is not None and job.model_id:
+                job.tokens = await asyncio.to_thread(
+                    turn_tokens, db_path, session_id, previous, job.model_id
+                )
 
     async def _worker(self):
         while True:
@@ -411,6 +433,7 @@ class Engine:
             reset_reason=job.reset_reason,
             active=self.active,
             queue_depth=self.queue.qsize(),
+            **({key: getattr(job.tokens, key) for key in TOKEN_FIELDS} if job.tokens else {}),
         )
 
     def health(self):

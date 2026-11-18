@@ -3,6 +3,8 @@
 import json
 import logging
 
+from .token_usage import TOKEN_FIELDS
+
 logger = logging.getLogger("astrbot")
 _usage_store = None
 _FIELDS = {
@@ -25,6 +27,7 @@ _FIELDS = {
     "version",
     "sequence",
     "model_id",
+    *TOKEN_FIELDS,
 }
 
 

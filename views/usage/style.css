@@ -46,9 +46,14 @@ button:disabled { opacity: .65; cursor: wait; }
 .controls label { color: var(--muted); font-size: 13px; }
 .message { padding: 11px 14px; margin-bottom: 13px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; font-size: 14px; }
 .warning { color: var(--warn); background: var(--warn-bg); }
+.startup-error { margin: 12px 0 0; }
 .runtime, .metric, .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 17px 19px; }
 .state { color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 3px 8px; font-size: 13px; }
 .runtime dl { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 1.4fr; gap: 13px; margin-top: 13px; }
+.tokens { margin-top: 12px; }
+.tokens dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tokens .runtime-heading span { color: var(--muted); font-size: 13px; }
+.tokens dd { font-size: 22px; font-variant-numeric: tabular-nums; }
 dt, dd { font-size: 13px; overflow-wrap: anywhere; }
 dd { margin-top: 3px; font-weight: 650; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
