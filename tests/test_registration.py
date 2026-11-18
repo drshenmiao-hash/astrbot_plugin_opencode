@@ -250,12 +250,13 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.opencode_models()[0]["enable"])
         self.assertNotIn(NATIVE_ID, self.manager.inst_map)
 
-    async def test_capabilities_are_text_only_in_saved_and_live_config(self):
+    async def test_image_capability_for_pinned_model_without_audio_or_tools(self):
         await runtime.initialize(self.context)
         source = self.opencode_sources()[0]
         model = self.opencode_models()[0]
-        for config in [source, model, self.manager.inst_map[NATIVE_ID].config]:
-            self.assertEqual(config["modalities"], ["text"])
+        self.assertEqual(source["modalities"], ["text"])
+        for config in [model, self.manager.inst_map[NATIVE_ID].config]:
+            self.assertEqual(config["modalities"], ["text", "image"])
             self.assertEqual(config["key"], "")
             self.assertEqual(config["api_base"], "")
 
@@ -286,7 +287,7 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.opencode_models()), 1)
         self.assertEqual(self.opencode_models()[0]["model"], MODEL)
         self.assertEqual(self.opencode_models()[0]["temperature"], 0.4)
-        self.assertEqual(self.opencode_models()[0]["modalities"], ["text"])
+        self.assertEqual(self.opencode_models()[0]["modalities"], ["text", "image"])
 
     async def test_same_model_alias_is_not_duplicated_or_renamed(self):
         self.conf["provider_sources"].append({"id": "custom-opencode", "type": "opencode_cli"})

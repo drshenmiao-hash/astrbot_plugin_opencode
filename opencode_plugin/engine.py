@@ -6,7 +6,8 @@ import uuid
 from dataclasses import dataclass, field
 
 from .acp import ACPClient
-from .errors import OpenCodeError
+from .errors import ImageLimitError, OpenCodeError
+from .images import prompt_images
 from .launcher import ProcessOwner
 from .logic import history_state, reconcile_history
 from .metrics import record
@@ -39,6 +40,11 @@ class Job:
     stats_session: str | None = None
     model_id: str | None = None
     tokens: TurnTokens | None = None
+    images: dict | None = None
+    sent_image_blocks: int = 0
+    sent_image_base64_bytes: int = 0
+    historical_images_not_attached: int = 0
+    error_metadata: dict = field(default_factory=dict)
 
 
 class Engine:
@@ -78,6 +84,7 @@ class Engine:
         sequence=None,
         stats_session=None,
         result_stats=None,
+        images=None,
     ):
         await self._start_workers()
         now = time.monotonic()
@@ -95,6 +102,7 @@ class Engine:
         )
         job.sequence = sequence if type(sequence) is int else None
         job.stats_session = stats_session
+        job.images = images
         self._jobs[job.request_id] = job
 
         async def queue_notice():
@@ -122,6 +130,7 @@ class Engine:
             if not job.future.done():
                 job.future.cancel()
             record("queue_expired", request_id=job.request_id, code="queue_timeout")
+            self.last_failure = "queue_timeout"
             self._account(job, "queue_timeout")
             raise OpenCodeError("queue_timeout") from None
         except asyncio.CancelledError:
@@ -185,9 +194,11 @@ class Engine:
                     pass
                 if b"bwrap" in client.stderr_sample:
                     code = "sandbox_unavailable"
-            if client is not None:
-                await client.close()
-            await owner.close()
+            try:
+                if client is not None:
+                    await client.close()
+            finally:
+                await owner.close()
             if isinstance(exc, Exception):
                 record("process_start_failed", transport=owner.kind, code=code)
                 raise OpenCodeError(code) from None
@@ -198,10 +209,12 @@ class Engine:
         self.client, self.owner = None, None
         self.sessions.clear()
         self.session_slots = 0
-        if client is not None:
-            await client.close()
-        if owner is not None:
-            await owner.close()
+        try:
+            if client is not None:
+                await client.close()
+        finally:
+            if owner is not None:
+                await owner.close()
         record("runtime_reset", reset_reason=reason)
 
     async def available_models(self):
@@ -241,6 +254,9 @@ class Engine:
                     job.process_reused = False
                 if self.client is None:
                     await self._new_client()
+                if job.images and self.owner is not None:
+                    if not await self.owner.model_supports_images():
+                        raise OpenCodeError("image_unsupported")
                 cached, _ = self._reuse(job.messages, job.scope)
                 if cached is None:
                     self.session_slots += 1
@@ -275,6 +291,17 @@ class Engine:
 
     async def _execute(self, job, client):
         cached, plan = self._reuse(job.messages, job.scope)
+        if job.scope in self.sessions:
+            record(
+                "history_comparison",
+                request_id=job.request_id,
+                session=job.stats_session or job.scope,
+                **{
+                    key: plan[key]
+                    for key in ("length_rule", "hash_rule", "tail_rule", "system_changed")
+                },
+                **plan["history_difference"],
+            )
         if not plan["has_new_user_input"]:
             return self._no_new_input(job, cached)
         delta = plan["delta"]
@@ -287,14 +314,27 @@ class Engine:
         if not job.scope:
             job.reset_reason = "no_stable_session_key"
         session_id = cached["session_id"] if cached else await client.new_session(self.cfg["model"])
-        text = render_messages(delta, incremental=bool(cached), clock_fields=plan["clock_fields"])
+        delta, image_blocks = prompt_images(delta, job.images or {})
+        job.historical_images_not_attached = sum(
+            entry.get("historical_images_not_attached", 0) for entry in delta
+        )
+        text = render_messages(
+            delta,
+            incremental=bool(cached),
+            clock_fields=plan["clock_fields"],
+            image_count=len(image_blocks),
+        )
         db_path = self.owner.usage_db if self.owner else None
         previous = (
             None if db_path is None else await asyncio.to_thread(previous_user, db_path, session_id)
         )
         job.sent_bytes = len(text.encode())
         stats = {}
-        turn = asyncio.create_task(client.prompt(session_id, text, stats=stats))
+        turn = asyncio.create_task(
+            client.prompt(
+                session_id, text, stats=stats, **({"images": image_blocks} if image_blocks else {})
+            )
+        )
         try:
             completed = await asyncio.shield(turn)
             reply = completed["text"]
@@ -306,7 +346,7 @@ class Engine:
                     "history": history_state(
                         job.messages + [{"role": "assistant", "content": reply}]
                     ),
-                    "request_hashes": history_state(job.messages)["dialogue_hashes"],
+                    "request_hashes": history_state(job.messages)["request_hashes"],
                     "last_reply": reply,
                 }
             return reply
@@ -327,6 +367,9 @@ class Engine:
             job.wire_bytes = stats.get("wire_bytes", job.wire_bytes)
             job.output_bytes = stats.get("output_bytes", job.output_bytes)
             job.model_id = stats.get("model_id")
+            if job.wire_bytes:
+                job.sent_image_blocks = len(image_blocks)
+                job.sent_image_base64_bytes = sum(len(block["data"]) for block in image_blocks)
             if previous is not None and job.model_id:
                 job.tokens = await asyncio.to_thread(
                     turn_tokens, db_path, session_id, previous, job.model_id
@@ -374,10 +417,12 @@ class Engine:
                     await asyncio.gather(operation, return_exceptions=True)
                     raise OpenCodeError(code)
             except asyncio.TimeoutError:
-                code = "queue_timeout"
+                code = self.last_failure = "queue_timeout"
                 error = OpenCodeError(code)
             except OpenCodeError as exc:
                 code = self.last_failure = exc.code
+                if isinstance(exc, ImageLimitError):
+                    job.error_metadata = exc.metadata
                 error = exc
             except asyncio.CancelledError:
                 code = "closed"
@@ -433,6 +478,10 @@ class Engine:
             reset_reason=job.reset_reason,
             active=self.active,
             queue_depth=self.queue.qsize(),
+            sent_image_blocks=job.sent_image_blocks,
+            sent_image_base64_bytes=job.sent_image_base64_bytes,
+            historical_images_not_attached=job.historical_images_not_attached,
+            **job.error_metadata,
             **({key: getattr(job.tokens, key) for key in TOKEN_FIELDS} if job.tokens else {}),
         )
 

@@ -35,6 +35,8 @@ class Peer:
         self.sessions = 0
         self.denials = []
         self.cancelled = []
+        self.prompt_pending = {}
+        self.images_supported = True
 
     def send(self, **fields):
         self.stdout.feed_data(json.dumps({"jsonrpc": "2.0", **fields}).encode() + b"\n")
@@ -63,7 +65,11 @@ class Peer:
         method, params = msg.get("method"), msg.get("params", {})
         match method:
             case "initialize":
-                result = {"protocolVersion": 1, "authMethods": [{"id": "opencode-login"}]}
+                result = {
+                    "protocolVersion": 1,
+                    "authMethods": [{"id": "opencode-login"}],
+                    "agentCapabilities": {"promptCapabilities": {"image": self.images_supported}},
+                }
             case "session/new":
                 assert params == {"cwd": "/work", "mcpServers": []}
                 self.sessions += 1
@@ -75,6 +81,9 @@ class Peer:
                 self.prompts.append(params)
                 sid = params["sessionId"]
                 script = self.replies.popleft()
+                if script.get("wait_for_cancel"):
+                    self.prompt_pending[sid] = msg["id"]
+                    return
                 if "permission" in script:
                     self.send(
                         method="session/request_permission",
@@ -99,7 +108,10 @@ class Peer:
                     )
                 result = {"stopReason": "end_turn"}
             case "session/cancel":
-                self.cancelled.append(params["sessionId"])
+                sid = params["sessionId"]
+                self.cancelled.append(sid)
+                if sid in self.prompt_pending:
+                    self.send(id=self.prompt_pending.pop(sid), result={"stopReason": "cancelled"})
                 return
             case None:
                 self.denials.append(msg.get("result"))
@@ -162,6 +174,23 @@ class ACPTests(unittest.IsolatedAsyncioTestCase):
             await self.submit([{"role": "user", "content": "测试"}])
         self.assertEqual(error.exception.code, "connection_stalled")
         self.assertEqual(self.engine.sessions, {})
+
+    async def test_terminal_error_chunk_retries_and_total_attempts_are_respected(self):
+        script = {
+            "chunks": ["Partial reply", "  Error: RetriableError: [unavailable] PING timed out"]
+        }
+        self.peer.replies.extend([script, {"chunks": ["OK"]}])
+        messages = [{"role": "user", "content": "question"}]
+        self.assertEqual(await retry_stream_errors(lambda: self.submit(messages)), "OK")
+        self.assertEqual(len(self.peer.prompts), 2)
+        self.peer.replies.append(script)
+        with self.assertRaises(OpenCodeError) as error:
+            await retry_stream_errors(
+                lambda: self.submit(messages + [{"role": "user", "content": "other"}]),
+                request_max_retries=1,
+            )
+        self.assertEqual(error.exception.code, "ping_timeout")
+        self.assertEqual(len(self.peer.prompts), 3)
 
     async def test_rejected_api_key_is_a_safe_failure_without_retry(self):
         self.peer.replies.append({"error": "Incorrect API key provided: fixture-secret"})

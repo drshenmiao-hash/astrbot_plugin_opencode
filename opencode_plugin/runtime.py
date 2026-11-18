@@ -3,8 +3,10 @@
 """Plugin configuration and native Provider lifecycle integration."""
 
 import asyncio
-import logging
+import time
 from copy import deepcopy
+
+from astrbot.api import logger
 
 from .engine import Engine
 from .errors import OpenCodeError
@@ -15,12 +17,25 @@ from .usage import UsageStore, format_summary
 PROVIDER_TYPE = "opencode_cli"
 DEFAULT_SOURCE_ID = PROVIDER_TYPE
 _SUSPENDED = "_opencode_suspended_for_model_change"
-logger = logging.getLogger("astrbot")
 _settings = None
 _engine = None
 _available_models = None
 _usage_store = None
 _startup_failure = None
+_validation_task = None
+_retry_validation_after = 0.0
+_validation_stopped = False
+_STARTUP_BACKOFF = (0.5, 2.0)
+_RECOVERY_COOLDOWN = 15.0
+_TRANSIENT_VALIDATION_ERRORS = {
+    "transport",
+    "startup_timeout",
+    "timeout",
+    "process_exited",
+    "connection_stalled",
+    "ping_timeout",
+    "upstream_retryable",
+}
 
 
 def configure_usage(context, *, directory=None):
@@ -74,7 +89,7 @@ async def usage_dashboard(days):
         **report,
         "runtime": engine_health(),
         "model": cfg["model"] or cfg["requested_model"],
-        "validated": bool(cfg["model"]),
+        "validated": bool(cfg["model"]) and _startup_failure is None,
         "startup_error": (
             {"code": _startup_failure, "message": str(OpenCodeError(_startup_failure))}
             if _startup_failure
@@ -85,11 +100,18 @@ async def usage_dashboard(days):
 
 
 def configure(config):
-    global _settings, _available_models, _startup_failure
+    global \
+        _settings, \
+        _available_models, \
+        _startup_failure, \
+        _validation_stopped, \
+        _retry_validation_after
     _settings = settings_from(config)
     _settings["model"] = ""  # Never publish an unvalidated management/display ID.
     _available_models = None
     _startup_failure = None
+    _validation_stopped = False
+    _retry_validation_after = 0.0
     try:
         from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
@@ -100,33 +122,95 @@ def configure(config):
 
 def record_startup_failure(code):
     global _startup_failure
-    _startup_failure = code
-    _settings["model"] = ""
-    logger.warning("opencode_provider_startup code=%s", code)
+    if _startup_failure != code:
+        _startup_failure = code
+        logger.warning("opencode_provider_startup code=%s", code)
+
+
+def _check_startup():
+    if _validation_stopped:
+        raise OpenCodeError("closed")
+    if _startup_failure:
+        raise OpenCodeError(_startup_failure)
+
+
+async def _run_validation(backoff):
+    global _validation_task, _startup_failure, _retry_validation_after
+    try:
+        for attempt, delay in enumerate((0.0, *backoff), 1):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                await validate_configured_model()
+            except OpenCodeError as exc:
+                error = exc
+            except asyncio.TimeoutError:
+                error = OpenCodeError("startup_timeout")
+            else:
+                _startup_failure = None
+                _retry_validation_after = 0.0
+                return None
+            code = error.code
+            logger.warning("opencode_model_validation code=%s attempt=%d", code, attempt)
+            if code not in _TRANSIENT_VALIDATION_ERRORS:
+                break
+        record_startup_failure(code)
+        _retry_validation_after = time.monotonic() + _RECOVERY_COOLDOWN
+        return error.with_traceback(None)
+    finally:
+        _validation_task = None
+
+
+async def ensure_model_validated(*, startup=False):
+    """Share an ACP probe across callers. Only startup uses the backoff sequence."""
+    global _validation_task
+    if _validation_stopped:
+        raise OpenCodeError("closed")
+    if _validation_task is None:
+        if not startup and _startup_failure:
+            if (
+                _startup_failure not in _TRANSIENT_VALIDATION_ERRORS
+                or time.monotonic() < _retry_validation_after
+            ):
+                raise OpenCodeError(_startup_failure)
+        elif not startup and _available_models is not None:
+            return
+        _validation_task = asyncio.create_task(_run_validation(_STARTUP_BACKOFF if startup else ()))
+    try:
+        error = await asyncio.shield(_validation_task)
+    except asyncio.CancelledError:
+        if _validation_stopped and not asyncio.current_task().cancelling():
+            raise OpenCodeError("closed") from None
+        raise
+    if isinstance(error, ModelResolutionError):
+        raise ModelResolutionError(error.available_model_ids)
+    if error is not None:
+        raise OpenCodeError(error.code)
+
+
+async def stop_validation():
+    global _validation_stopped, _validation_task
+    _validation_stopped = True
+    task = _validation_task
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if _validation_task is task:
+            _validation_task = None
 
 
 async def _fetch_available_models():
-    # Reuse a live runtime only when its connection/account settings match.
-    connection_keys = (
-        "cli_binary",
-        "bubblewrap_binary",
-        "auth_path",
-        "requested_model",
-        "protected_paths",
-    )
-    if (
-        _engine is not None
-        and not _engine.closed
-        and all(_engine.cfg.get(key) == _settings.get(key) for key in connection_keys)
-    ):
-        return await asyncio.wait_for(
-            _engine.available_models(), _settings["queue_timeout_seconds"]
-        )
+    # OpenCode can probe in its own sandbox without interrupting live chats.
     probe = Engine({**settings(), "model": _settings["requested_model"]})
     try:
         return await asyncio.wait_for(probe.available_models(), _settings["queue_timeout_seconds"])
     finally:
-        await probe.close()
+        closing = asyncio.create_task(probe.close())
+        try:
+            await asyncio.shield(closing)
+        except asyncio.CancelledError:
+            await closing
+            raise
 
 
 async def validate_configured_model():
@@ -139,15 +223,18 @@ async def validate_configured_model():
         return None
     _available_models = None
     _available_models = await _fetch_available_models()
-    resolved = resolve_model_id(requested)
+    resolved = _resolve_catalog_model(requested)
     _settings["model"] = resolved
     logger.info("OpenCode model_id 已通过 ACP 校验，实际 modelId=%s", resolved)
     return resolved
 
 
 def resolve_model_id(requested):
-    if _startup_failure:
-        raise OpenCodeError(_startup_failure)
+    _check_startup()
+    return _resolve_catalog_model(requested)
+
+
+def _resolve_catalog_model(requested):
     if _available_models is None:
         raise OpenCodeError("model_not_validated")
     try:
@@ -159,10 +246,7 @@ def resolve_model_id(requested):
 
 
 async def available_model_ids():
-    if _startup_failure:
-        raise OpenCodeError(_startup_failure)
-    if _available_models is None:
-        await validate_configured_model()
+    await ensure_model_validated()
     model = settings()["model"]
     return [model] if model else []
 
@@ -320,7 +404,7 @@ async def ensure_default_source_and_model(config):
                 provider_type="chat_completion",
                 key="",
                 api_base="",
-                modalities=["text"],
+                modalities=["text", "image"],
             )
             target.setdefault("enable", True)
             if target.get(_SUSPENDED) and source.get("enable", True):
@@ -347,8 +431,18 @@ async def ensure_default_source_and_model(config):
 async def initialize(context):
     """Ensure native config, then refresh instances with the OAuth plugin's lifecycle."""
     config = context.astrbot_config_mgr.default_conf
-    await validate_configured_model()
+    try:
+        await ensure_model_validated(startup=True)
+    except OpenCodeError:
+        # Replace stopped adapters so subsequent requests use this runtime's validation state.
+        await _reload_host_models(context, None, stopped_only=True)
+        raise
     target_id = await ensure_default_source_and_model(config)
+    await _reload_host_models(context, target_id)
+
+
+async def _reload_host_models(context, target_id, *, stopped_only=False):
+    config = context.astrbot_config_mgr.default_conf
     manager = getattr(context, "provider_manager", None)
     if manager is None:
         return
@@ -374,6 +468,11 @@ async def initialize(context):
             should_load = model["id"] in instances or (
                 running and model["id"] == target_id and model.get("enable", True)
             )
+            if stopped_only:
+                instance = instances.get(model["id"])
+                should_load = getattr(
+                    instance, "_astrbot_opencode_plugin", False
+                ) is True and getattr(instance, "_closed", False)
             if not own_model or not should_load:
                 continue
             from .provider import OpenCodeCLIProvider

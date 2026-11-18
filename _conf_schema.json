@@ -5,6 +5,12 @@
     "default": "",
     "hint": "填写 opencode models 中已登录服务商的确切 ID。留空仅注册来源。"
   },
+  "image_unsupported_message": {
+    "description": "图片不支持时的回复",
+    "type": "string",
+    "default": "",
+    "hint": "运行端或模型拒绝图片时显示这段文字。最多 240 字，留空使用默认提示。"
+  },
   "cli_binary": {
     "description": "官方 OpenCode 原生二进制绝对路径",
     "type": "string",
@@ -22,7 +28,7 @@
     "hint": "使用 AstrBot 运行用户的专用登录文件，权限 0600。"
   },
   "timeout_seconds": {
-    "description": "CLI 超时秒数（1–600）",
+    "description": "CLI 超时秒数（1–1800）",
     "type": "int",
     "default": 120,
     "hint": "从实际执行开始计时，不包含排队。超时发送 ACP 取消，5 秒内未确认则重置运行时；不自动重试。"
@@ -48,7 +54,7 @@
     "description": "完整上下文 UTF-8 字节上限",
     "type": "int",
     "default": 262144,
-    "hint": "范围 1024–16777216。超限报 context_limit，不截断、不丢历史。"
+    "hint": "范围 1024–4194304。超限报 context_limit，不截断、不丢历史。"
   },
   "output_max_bytes": {
     "description": "单次回复字节上限",

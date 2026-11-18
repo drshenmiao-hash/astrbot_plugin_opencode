@@ -1,13 +1,12 @@
 """Read-only usage endpoint carried by AstrBot's authenticated page bridge."""
 
-import logging
+from astrbot.api import logger
 
 from .runtime import usage_dashboard
 from .usage import DASHBOARD_RANGES
 
 ROUTE = "/astrbot_plugin_opencode/usage/dashboard"
 _NO_CACHE = {"Cache-Control": "no-store"}
-logger = logging.getLogger("astrbot")
 
 
 class UsagePage:

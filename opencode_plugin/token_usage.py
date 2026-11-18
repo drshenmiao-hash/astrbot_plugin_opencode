@@ -1,11 +1,11 @@
 """Read counters from the pinned OpenCode CLI's private session database."""
 
-import logging
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
 
-logger = logging.getLogger("astrbot")
+from astrbot.api import logger
+
 TOKEN_FIELDS = ("token_total", "token_input", "token_output", "token_cached")
 
 

@@ -18,6 +18,13 @@ const codes = {
   model_unavailable: "模型不可用",
   tool_blocked: "工具已拦截",
   sandbox_unavailable: "隔离环境不可用",
+  cleanup_timeout: "运行端清理超时",
+  image_unsupported: "模型不支持图片",
+  image_capability_unverified: "图片能力待确认",
+  image_source: "图片来源不可读",
+  image_invalid: "图片格式无效",
+  image_unavailable: "模型无法读取图片",
+  image_limit: "图片超限",
 };
 const count = (value) => number.format(value ?? 0);
 const tokenCount = (value) => value == null ? "—" : count(value);

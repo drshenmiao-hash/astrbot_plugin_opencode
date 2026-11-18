@@ -2,15 +2,20 @@
 
 import asyncio
 import json
-import logging
 import time
 
-from .errors import OpenCodeError, OpenCodeStreamError
-from .launcher import CHAT_MODE
-from .logic import classify_error, classify_reply_error
-from .models import ModelResolutionError, resolve_model
+from astrbot.api import logger
 
-logger = logging.getLogger("astrbot")
+from .errors import ImageLimitError, OpenCodeError, OpenCodeStreamError
+from .images import MAX_IMAGE_FRAME_BYTES
+from .launcher import CHAT_MODE
+from .logic import (
+    classify_chunk_tail_error,
+    classify_error,
+    classify_image_error,
+    classify_reply_error,
+)
+from .models import ModelResolutionError, resolve_model
 
 
 class ACPClient:
@@ -42,9 +47,12 @@ class ACPClient:
             if len(self.stderr_sample) < 8192:
                 self.stderr_sample.extend(chunk[: 8192 - len(self.stderr_sample)])
 
-    async def _write(self, message):
+    async def _write(self, message, *, image_prompt=False):
         raw = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode() + b"\n"
-        if len(raw) > self.frame_limit:
+        limit = self.frame_limit + (MAX_IMAGE_FRAME_BYTES if image_prompt else 0)
+        if len(raw) > limit:
+            if image_prompt:
+                raise ImageLimitError("frame_bytes", limit, len(raw))
             raise OpenCodeError("context_limit")
         async with self._write_lock:
             try:
@@ -54,7 +62,7 @@ class ACPClient:
                 raise OpenCodeError("process_exited") from None
         return len(raw)
 
-    async def call(self, method, params, *, timeout=None):
+    async def call(self, method, params, *, timeout=None, image_prompt=False):
         if self.closed:
             raise OpenCodeError(self.failure_code or "process_exited")
         self._next_id += 1
@@ -63,7 +71,8 @@ class ACPClient:
         self.pending[request_id] = future
         try:
             sent_bytes = await self._write(
-                {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+                {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
+                image_prompt=image_prompt,
             )
             if method == "session/prompt" and params.get("sessionId") in self.turns:
                 self.turns[params["sessionId"]]["wire_bytes"] = sent_bytes
@@ -91,7 +100,7 @@ class ACPClient:
                         "fs": {"readTextFile": False, "writeTextFile": False},
                         "terminal": False,
                     },
-                    "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.2.0"},
+                    "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.2.1"},
                 },
                 timeout=30,
             )
@@ -153,7 +162,14 @@ class ACPClient:
         self.session_models[session_id] = model
         return session_id
 
-    async def prompt(self, session_id, text, *, stats=None):
+    async def prompt(self, session_id, text, *, stats=None, images=()):
+        if images:
+            capabilities = (self.initialized or {}).get("agentCapabilities")
+            supported = (
+                capabilities.get("promptCapabilities") if isinstance(capabilities, dict) else None
+            )
+            if not isinstance(supported, dict) or supported.get("image") is not True:
+                raise OpenCodeError("image_unsupported")
         state = {"parts": [], "size": 0, "error": None}
         self.turns[session_id] = state
         try:
@@ -161,8 +177,9 @@ class ACPClient:
                 "session/prompt",
                 {
                     "sessionId": session_id,
-                    "prompt": [{"type": "text", "text": text}],
+                    "prompt": [{"type": "text", "text": text}, *images],
                 },
+                **({"image_prompt": True} if images else {}),
             )
             if state["error"]:
                 raise OpenCodeError(state["error"])
@@ -178,7 +195,15 @@ class ACPClient:
             text = "".join(state["parts"])
             if not text.strip():
                 raise OpenCodeError("empty_output")
-            error_code = classify_reply_error(text)
+            if images:
+                image_error = classify_image_error(text, reply=True) or classify_image_error(
+                    state["parts"][-1], reply=True
+                )
+                if image_error:
+                    raise OpenCodeError(image_error)
+            error_code = classify_reply_error(text) or classify_chunk_tail_error(
+                text, state["parts"]
+            )
             if error_code:
                 raise OpenCodeStreamError(error_code)
             return {"text": text, "wire_bytes": state.get("wire_bytes", 0)}
@@ -317,4 +342,4 @@ class ACPClient:
         for future in list(self.pending.values()):
             if not future.done():
                 future.set_exception(OpenCodeError("closed"))
-        # The owner closes/kills the process and persists refreshed credentials.
+        # The owner closes the process and removes its private session data.

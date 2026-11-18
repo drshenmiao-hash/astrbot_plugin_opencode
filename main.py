@@ -14,7 +14,7 @@ from .opencode_plugin.web import UsagePage
 __all__ = ["OpenCodeCLIPlugin", "OpenCodeCLIProvider"]
 
 
-@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 纯文本 Provider", "0.2.0")
+@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 聊天 Provider", "0.2.1")
 class OpenCodeCLIPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -34,6 +34,7 @@ class OpenCodeCLIPlugin(Star):
 
     async def terminate(self):
         self._usage_page.close()
+        await runtime.stop_validation()
         await runtime.stop_providers(self.context)
 
     @filter.permission_type(filter.PermissionType.ADMIN)

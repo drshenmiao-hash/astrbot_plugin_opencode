@@ -2,9 +2,11 @@
 
 让 AstrBot 的 QQ 机器人通过官方 `opencode acp` 使用明确指定的模型。插件会在校验模型后注册原生 `opencode_cli` 来源，模型以 `opencode_cli:provider/model` 显示。需要使用时，在目标会话里选择它即可。
 
-插件支持纯文本聊天、会话复用、system 增量、排队提示「呜呜等一下」、断流单次重试和本地用量管理页。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
+插件支持文本、兼容模型的图片输入、会话复用、system 增量、排队提示「呜呜等一下」、断流单次重试和本地用量管理页。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
 
 ## 安装
+
+当前发布版本为 `v0.2.1`，可在 AstrBot 插件页用本仓库地址安装或更新，也可上传发布页的源码 ZIP。[v0.2.1 发布页](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/releases/tag/v0.2.1)
 
 适用 AstrBot 4.29.4 系列、Python 3.12+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
@@ -14,7 +16,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.2.0 .
+  -t astrbot-with-opencode:0.2.1 .
 ```
 
 使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
@@ -33,7 +35,13 @@ XDG_DATA_HOME="$OPENCODE_AUTH_DATA" /usr/local/bin/opencode models
 
 切换 `model_id` 后，原先自动注册的模型保留其 ID 和配置并暂停使用。切回旧模型时，只恢复插件因模型切换而停用的条目。已保存的默认模型和会话选择由 AstrBot 管理，切换后可在目标会话手动选择新模型。
 
-OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过外部插件或浏览器 OAuth 登录的账户、代理环境变量、自定义服务商配置、图片与 AstrBot 工具调用均未接入。当前模型列表取自所安装 OpenCode 二进制的内置目录；如果所需模型缺失，先在测试环境核对 CLI 版本。
+OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过外部插件或浏览器 OAuth 登录的账户、代理环境变量、自定义服务商配置、音频与 AstrBot 工具调用均未接入。当前模型列表取自所安装 OpenCode 二进制的内置目录；如果所需模型缺失，先在测试环境核对 CLI 版本。
+
+## 图片输入
+
+OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片时用同一隔离环境下的官方 `opencode models --verbose` 核对当前模型的图片能力，不额外调用模型。模型不支持时返回 `image_unsupported`，可在设置中用 `image_unsupported_message` 自定义提示。能力无法确认时返回 `image_capability_unverified`。模型 ID 仍由 ACP 校验。
+
+每轮最多 4 张静态 PNG、JPEG 或 WebP，单张最多 2 MiB，合计最多 4 MiB，每张最多 400 万像素。只接收 AstrBot 准备好的内联数据或其临时目录内的普通文件，不直接下载 URL。超限时日志会记录具体限制和已测得的值。发送给 ACP 的只有当前轮附件。会话重建时保留历史文字并标记旧图缺失，已复用会话中的历史仍由 OpenCode 管理。`wire_bytes` 只统计插件发送的 ACP 帧。
 
 ## 隔离与统计
 
@@ -43,15 +51,17 @@ OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过�
 
 日期按 UTC 划分。每次处理尝试单独记录，包含失败、重试和缓存命中。**Token 用量**读取 OpenCode 1.19.6 写入临时会话库的计数，显示总量、输入、输出和缓存命中，支持按模型、匿名会话和日期查看。输入包含缓存读写，输出包含推理 Token。历史记录、回放和服务商未提供的计数显示为 `—`。插件只保存数字和请求元数据，统计库可沿用。费用和额度以模型服务商的账单为准。
 
-CLI、认证或模型校验失败时，用量页仍会显示历史记录和启动失败原因。处理对应问题后可重载插件。
+CLI、认证或模型校验失败时，用量页仍会显示历史记录和启动失败原因。启动时的暂时性故障最多尝试 3 次，已有模型的后续请求可在冷却后共用一次校验。认证和模型配置错误需处理后重载。当前聊天失败时提示由 AstrBot 处理后续响应。
 
 ## 验证与升级
+
+在可以导入 AstrBot 4.29.4 的 Python 环境运行：
 
 ```bash
 python -m unittest discover -s tests
 ```
 
-默认测试使用模拟 ACP 对端。下面的可选测试通过 bubblewrap 启动官方 CLI 1.19.6，把上游指向本地模拟模型。它确认两轮聊天复用同一会话、发送两次模型请求、禁用自动生成标题和工具能力，并检查上游拒绝 API Key 时返回脱敏认证错误。
+默认测试使用模拟 ACP 对端。下面的可选测试通过 bubblewrap 启动官方 CLI 1.19.6，把上游指向本地模拟模型。它验证两轮文本复用、Token 读取、认证报错，以及真实 CLI 向本地模型替身转发图片字节。还验证纯文本模型在发出上游请求前拒绝图片。
 
 ```bash
 OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official_cli -v

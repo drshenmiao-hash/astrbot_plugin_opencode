@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from .errors import OpenCodeError
+from .errors import MESSAGES, OpenCodeError
 from .protocol import explicit_model
 
 
@@ -12,6 +12,10 @@ def settings_from(config):
         if model:
             explicit_model(model)
         cfg = {"model": model, "requested_model": model}
+        notice = config.get("image_unsupported_message", "")
+        if not isinstance(notice, str) or len(notice) > 240 or "\x00" in notice:
+            raise ValueError
+        cfg["image_unsupported_message"] = notice.strip() or MESSAGES["image_unsupported"]
         cfg["protected_paths"] = [str(Path(__file__).resolve().parents[1])]
         for name, default, minimum, maximum in (
             ("timeout_seconds", 120, 1, 1800),

@@ -12,6 +12,7 @@ from tempfile import TemporaryDirectory
 from .errors import OpenCodeError
 
 CHAT_MODE = "astrbot-chat"
+_MAX_CATALOG_BYTES = 4 * 1024 * 1024
 
 
 def _copy_auth(source, target, provider):
@@ -46,6 +47,8 @@ class ProcessOwner:
         self.cfg = cfg
         self.process = None
         self.scratch = None
+        self._command = None
+        self._image_support = None
 
     @property
     def usage_db(self):
@@ -83,7 +86,7 @@ class ProcessOwner:
             "agent": {
                 CHAT_MODE: {
                     "mode": "primary",
-                    "prompt": "You are a text conversation assistant. Reply with text. Never use tools.",
+                    "prompt": "You are a conversation assistant. Reply with text. Never use tools.",
                     "permission": {"*": "deny"},
                 },
                 "build": {"disable": True},
@@ -155,11 +158,17 @@ class ProcessOwner:
             ]
         )
         # The explicit env allowlist also keeps the server password out of argv.
-        argv.extend(["--", "/opt/opencode", "acp", "--hostname", "127.0.0.1", "--port", "0"])
+        argv.extend(["--", "/opt/opencode"])
+        self._command = (argv, env, root)
         try:
             limit = max(self.cfg["context_max_bytes"] * 2, self.cfg["output_max_bytes"]) + 65536
             self.process = await asyncio.create_subprocess_exec(
                 *argv,
+                "acp",
+                "--hostname",
+                "127.0.0.1",
+                "--port",
+                "0",
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -173,8 +182,66 @@ class ProcessOwner:
             raise OpenCodeError("transport") from None
         return self.process, {"cwd": "/work", "transport": "local"}
 
+    async def model_supports_images(self):
+        """ACP model options lack per-model capabilities; read the same CLI's catalog."""
+        if self._image_support is not None:
+            return self._image_support
+        if self._command is None:
+            raise OpenCodeError("image_capability_unverified")
+        argv, env, cwd = self._command
+        model = self.cfg["model"]
+        provider = model.split("/", 1)[0]
+        process = None
+        try:
+            async with asyncio.timeout(5):
+                process = await asyncio.create_subprocess_exec(
+                    *argv,
+                    "models",
+                    provider,
+                    "--verbose",
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    env=env,
+                    cwd=cwd,
+                    start_new_session=True,
+                    close_fds=True,
+                )
+                output = bytearray()
+                while chunk := await process.stdout.read(65536):
+                    output.extend(chunk)
+                    if len(output) > _MAX_CATALOG_BYTES:
+                        raise OpenCodeError("image_capability_unverified")
+                if await process.wait() != 0:
+                    raise OpenCodeError("image_capability_unverified")
+                _, separator, entry = ("\n" + output.decode()).partition(f"\n{model}\n")
+                if not separator:
+                    raise OpenCodeError("image_capability_unverified")
+                details, _ = json.JSONDecoder().raw_decode(entry.lstrip())
+                image = details["capabilities"]["input"]["image"]
+                if type(image) is not bool:
+                    raise OpenCodeError("image_capability_unverified")
+        except (OSError, ValueError, TypeError, KeyError, TimeoutError):
+            raise OpenCodeError("image_capability_unverified") from None
+        finally:
+            if process is not None and process.returncode is None:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                # A full asyncio reader can otherwise keep process.wait() blocked.
+                process.stdout._transport.close()
+                try:
+                    await asyncio.wait_for(process.wait(), 2)
+                except asyncio.TimeoutError:
+                    raise OpenCodeError("cleanup_timeout") from None
+        self._image_support = image
+        return image
+
     async def close(self):
         process, self.process = self.process, None
+        self._command = None
+        self._image_support = None
         try:
             if process is not None:
                 process.stdin.close()
@@ -189,7 +256,10 @@ class ProcessOwner:
                         transport = getattr(stream, "_transport", None)
                         if transport is not None:
                             transport.close()
-                    await asyncio.wait_for(process.wait(), 2)
+                    try:
+                        await asyncio.wait_for(process.wait(), 2)
+                    except asyncio.TimeoutError:
+                        raise OpenCodeError("cleanup_timeout") from None
         finally:
             if self.scratch is not None:
                 self.scratch.cleanup()

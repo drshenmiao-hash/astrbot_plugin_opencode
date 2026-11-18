@@ -25,4 +25,5 @@ def resolve_model(requested, options):
 class ModelResolutionError(OpenCodeError):
     def __init__(self, ids):
         super().__init__("model_unavailable")
+        self.available_model_ids = ids
         self.args = (f"{self.args[0]} 可用 ID：{', '.join(ids[:30]) or '无'}",)

@@ -1,11 +1,11 @@
 """Metadata-only records. No request/response content, credentials, paths or raw errors."""
 
 import json
-import logging
+
+from astrbot.api import logger
 
 from .token_usage import TOKEN_FIELDS
 
-logger = logging.getLogger("astrbot")
 _usage_store = None
 _FIELDS = {
     "request_id",
@@ -27,6 +27,24 @@ _FIELDS = {
     "version",
     "sequence",
     "model_id",
+    "has_conversation_id",
+    "has_session_id",
+    "has_message_event",
+    "length_rule",
+    "hash_rule",
+    "tail_rule",
+    "system_changed",
+    "history_change",
+    "history_previous_count",
+    "history_incoming_count",
+    "history_first_difference",
+    "history_changed_fields",
+    "sent_image_blocks",
+    "sent_image_base64_bytes",
+    "historical_images_not_attached",
+    "image_limit_kind",
+    "image_limit_max",
+    "image_limit_actual",
     *TOKEN_FIELDS,
 }
 

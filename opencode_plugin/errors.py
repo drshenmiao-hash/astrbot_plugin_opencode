@@ -1,6 +1,6 @@
 """Typed, fixed errors for routing and diagnostics; upstream payloads stay private."""
 
-import logging
+from astrbot.api import logger
 
 MESSAGES = {
     "usage_unavailable": "本地统计库暂不可用。",
@@ -16,6 +16,12 @@ MESSAGES = {
     "ping_timeout": "OpenCode 生成连接心跳超时；请稍后重试或使用备用模型。",
     "upstream_retryable": "OpenCode 生成流暂时失败；请稍后重试或使用备用模型。",
     "chat_mode_required": "OpenCode 未确认纯聊天模式，已停止请求。",
+    "image_unsupported": "当前 OpenCode 模型或运行端不支持图片，请更换支持图片的模型。",
+    "image_source": "图片不可读取。请重新发送图片。",
+    "image_capability_unverified": "无法确认所选 OpenCode 模型支持图片，本次未发送。请检查 CLI 及模型配置。",
+    "image_unavailable": "OpenCode 或模型服务商无法读取本轮图片，请重新发送。",
+    "image_invalid": "图片格式无效或不受支持，仅支持静态 PNG、JPEG 和 WebP。",
+    "image_limit": "本轮图片超过数量、字节或像素限制。",
     "unsupported": "OpenCode 当前适配器不支持此输入能力。",
     "context_limit": "完整上下文超过 context_max_bytes，已报错；不会截断或悄悄丢弃历史。",
     "timeout": "OpenCode 请求超时，已发出取消；请检查诊断记录和用量后再决定是否重试。",
@@ -66,18 +72,44 @@ class UnsupportedFeatureError(OpenCodeError):
         )
 
 
+class ImageUnsupportedError(OpenCodeError):
+    def __init__(self, message):
+        self.code = "image_unsupported"
+        RuntimeError.__init__(self, f"[opencode:{self.code}] {message}")
+
+
+class ImageLimitError(OpenCodeError):
+    def __init__(self, kind, limit, actual=None):
+        self.code = "image_limit"
+        self.metadata = {"image_limit_kind": kind, "image_limit_max": limit}
+        if actual is not None:
+            self.metadata["image_limit_actual"] = actual
+        label = {
+            "count": "张数",
+            "file_bytes": "单张字节数",
+            "total_bytes": "总字节数",
+            "pixels": "像素数",
+            "frame_bytes": "ACP 帧字节数",
+        }[kind]
+        measured = f"，实际 {actual}" if actual is not None else ""
+        RuntimeError.__init__(
+            self,
+            f"[opencode:image_limit] 本轮图片{label}超限（上限 {limit}{measured}），本次请求未发送。",
+        )
+
+
 class OpenCodeStreamError(OpenCodeError):
     retryable = True
 
 
 async def retry_stream_errors(operation, *, request_max_retries=None):
     """At most one retry of a detected stream error; other failures propagate."""
-    retries = 0 if isinstance(request_max_retries, int) and request_max_retries <= 0 else 1
+    retries = 0 if isinstance(request_max_retries, int) and request_max_retries <= 1 else 1
     for attempt in range(retries + 1):
         try:
             return await operation()
         except OpenCodeStreamError as exc:
-            logging.getLogger("astrbot").warning(
+            logger.warning(
                 "opencode_stream_failure code=%s attempt=%d max_attempts=%d retryable=true",
                 exc.code,
                 attempt + 1,

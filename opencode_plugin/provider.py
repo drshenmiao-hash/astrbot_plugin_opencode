@@ -14,7 +14,14 @@ from astrbot.core.provider.entities import TokenUsage
 from astrbot.core.provider.register import provider_cls_map, register_provider_adapter
 
 from . import runtime
-from .errors import OpenCodeError, UnsupportedFeatureError, retry_stream_errors
+from .errors import (
+    ImageLimitError,
+    ImageUnsupportedError,
+    OpenCodeError,
+    UnsupportedFeatureError,
+    retry_stream_errors,
+)
+from .images import ImageInput
 from .metrics import record
 from .transcript import normalize_messages
 
@@ -28,7 +35,7 @@ def register_adapter(cls):
     if metadata is None:
         register_provider_adapter(
             runtime.PROVIDER_TYPE,
-            "OpenCode 官方 CLI（纯文本）",
+            "OpenCode 官方 CLI",
             default_config_tmpl=dict(TEMPLATE),
             provider_display_name="OpenCode CLI",
         )(cls)
@@ -49,7 +56,7 @@ class OpenCodeCLIProvider(Provider):
     def __init__(self, provider_config, provider_settings):
         # Dashboard-created models can default to image/audio/tool support.
         # Declare this adapter's actual capabilities on its own config copy.
-        config = {**provider_config, "modalities": ["text"]}
+        config = {**provider_config, "modalities": ["text", "image"]}
         super().__init__(config, provider_settings)
         cfg = runtime.settings()
         self.set_model(provider_config.get("model") or cfg["model"])
@@ -91,6 +98,14 @@ class OpenCodeCLIProvider(Provider):
         request_max_retries=None,
         **kwargs,
     ):
+        event = None
+        try:
+            from astrbot.core.platform.astr_message_event import current_message_event
+
+            event = current_message_event.get()
+        except (ImportError, LookupError):
+            pass
+        conversation_id = kwargs.get("conversation_id")
         try:
             return await self._complete_text(
                 prompt=prompt,
@@ -104,17 +119,49 @@ class OpenCodeCLIProvider(Provider):
                 extra_user_content_parts=extra_user_content_parts,
                 tool_choice=tool_choice,
                 session_id=session_id,
-                conversation_id=kwargs.get("conversation_id"),
+                conversation_id=conversation_id,
                 request_sequence=kwargs.get("request_sequence"),
                 request_max_retries=request_max_retries,
+                event=event,
             )
         except asyncio.CancelledError:
             raise
-        except OpenCodeError:
+        except OpenCodeError as exc:
+            image_message = (
+                self.settings["image_unsupported_message"]
+                if exc.code == "image_unsupported"
+                else None
+            )
+            if event is not None and (
+                image_message or isinstance(conversation_id, str) and conversation_id
+            ):
+                await self._notify_failure(event, exc.code, message=image_message)
+            if image_message is not None:
+                raise ImageUnsupportedError(image_message) from None
             raise
         except Exception:
             # Also sanitize failures while serializing framework content objects.
             raise OpenCodeError("cli_failed") from None
+
+    @staticmethod
+    async def _notify_failure(event, code, *, message=None):
+        key = "_astrbot_opencode_failure_notice"
+        try:
+            if event.get_extra(key):
+                return
+            event.set_extra(key, True)
+            await asyncio.wait_for(
+                event.send(
+                    MessageChain().message(
+                        message
+                        if message is not None
+                        else f"OpenCode 本次未能回复（{code}），后续响应由 AstrBot 处理。"
+                    )
+                ),
+                timeout=2,
+            )
+        except Exception:
+            record("failure_notice_failed", code="notification")
 
     async def _complete_text(
         self,
@@ -133,16 +180,16 @@ class OpenCodeCLIProvider(Provider):
         conversation_id,
         request_sequence,
         request_max_retries=None,
+        event=None,
     ):
         started = time.monotonic()
-        event = None
-        try:
-            from astrbot.core.platform.astr_message_event import current_message_event
-
-            event = current_message_event.get()
-        except (ImportError, LookupError):
-            pass
         origin = getattr(event, "unified_msg_origin", "") if event is not None else ""
+        record(
+            "request_scope",
+            has_conversation_id=isinstance(conversation_id, str) and bool(conversation_id),
+            has_session_id=isinstance(session_id, str) and bool(session_id),
+            has_message_event=event is not None,
+        )
         stable = conversation_id or session_id
         scope = None
         stats_session = None
@@ -159,23 +206,36 @@ class OpenCodeCLIProvider(Provider):
                 if callable(getattr(func_tool, "empty", None))
                 else bool(func_tool)
             )
-            if image_urls:
-                raise UnsupportedFeatureError("image")
             if audio_urls:
                 raise UnsupportedFeatureError("audio")
             if has_tools or tool_calls_result or tool_choice == "required":
                 raise UnsupportedFeatureError("tool_calls")
+            image_input = None
+            arguments = (prompt, contexts, system_prompt, extra_user_content_parts)
+            options = {"max_bytes": self.settings["context_max_bytes"], "image_urls": image_urls}
+            try:
+                messages = normalize_messages(*arguments, **options)
+            except UnsupportedFeatureError as exc:
+                if exc.feature != "image":
+                    raise
+                from astrbot.core.utils.astrbot_path import get_astrbot_temp_path
+
+                image_input = ImageInput(get_astrbot_temp_path())
+                messages = await asyncio.to_thread(
+                    normalize_messages, *arguments, **options, image_input=image_input
+                )
+            await runtime.ensure_model_validated()
+            if self._closed:
+                raise OpenCodeError("closed")
             chosen = runtime.resolve_model_id(model if model is not None else self.get_model())
-            if chosen != self.settings["model"]:
+            cfg = runtime.settings()
+            if chosen != cfg["model"]:
                 raise OpenCodeError("model")
-            messages = normalize_messages(
-                prompt,
-                contexts,
-                system_prompt,
-                extra_user_content_parts,
-                max_bytes=self.settings["context_max_bytes"],
-            )
+            if self.engine is None:
+                self.engine = runtime.acquire_engine()
         except OpenCodeError as exc:
+            if exc.code != "closed" and self.engine is not None:
+                self.engine.last_failure = exc.code
             record(
                 "request_finished",
                 request_id=uuid.uuid4().hex,
@@ -183,6 +243,7 @@ class OpenCodeCLIProvider(Provider):
                 code=exc.code,
                 duration_ms=round((time.monotonic() - started) * 1000),
                 reset_reason="preflight",
+                **(exc.metadata if isinstance(exc, ImageLimitError) else {}),
             )
             raise
 
@@ -201,6 +262,7 @@ class OpenCodeCLIProvider(Provider):
                     sequence=request_sequence,
                     stats_session=stats_session,
                     result_stats=result_stats,
+                    images=image_input.blocks if image_input is not None else None,
                 )
             )
             self._pending.add(task)

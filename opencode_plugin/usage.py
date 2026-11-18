@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import logging
 import os
 import sqlite3
 import threading
@@ -11,9 +10,10 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from astrbot.api import logger
+
 from .token_usage import TOKEN_FIELDS
 
-logger = logging.getLogger("astrbot")
 DISCLAIMER = "OpenCode 插件本地统计，不是 OpenCode 账单、套餐余额或官方消耗。"
 _NUMBERS = (
     "duration_ms",

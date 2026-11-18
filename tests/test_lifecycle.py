@@ -85,6 +85,31 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(dict(self.config), config)
         self.assertIs(self.manager.curr_provider_inst, selected)
 
+    async def test_transient_reload_rebinds_existing_model_and_recovers_on_next_chat(self):
+        selected = self.manager.curr_provider_inst
+        original_config = deepcopy(dict(self.config))
+        self.fetch.side_effect = main.OpenCodeError("transport")
+        replacement = main.OpenCodeCLIPlugin(self.context, {"model_id": MODEL})
+        self.addAsyncCleanup(replacement.terminate)
+        with patch.object(runtime, "_STARTUP_BACKOFF", (0, 0)):
+            await replacement.initialize()
+        self.assertTrue(self.provider._closed)
+        current = self.manager.inst_map[NATIVE_ID]
+        self.assertIsNot(current, self.provider)
+        with self.assertRaises(main.OpenCodeError) as error:
+            await current.text_chat(prompt="first", conversation_id="chat")
+        self.assertEqual(error.exception.code, "transport")
+        self.assertEqual(self.store.summary()["rows"][0]["codes"], {"transport": 1})
+        runtime._retry_validation_after = 0
+        self.fetch.side_effect = None
+        with patch.object(runtime.Engine, "submit", AsyncMock(return_value="recovered")):
+            result = await current.text_chat(prompt="next", conversation_id="chat")
+        self.assertEqual(result.completion_text, "recovered")
+        self.assertIsNotNone(current.engine)
+        self.assertEqual((await runtime.usage_dashboard(7))["startup_error"], None)
+        self.assertEqual(dict(self.config), original_config)
+        self.assertIs(self.manager.curr_provider_inst, selected)
+
     async def test_plugin_stop_lets_inflight_chat_fail_and_keeps_other_providers(self):
         engine = self.provider.engine
         chat_started = asyncio.Event()
