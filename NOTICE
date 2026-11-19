@@ -12,3 +12,5 @@ Original files: src/provider.py, src/runtime.py and src/provider_registry.py
 
 OpenCode is a separate product and is not bundled with this plugin.
 The MIT notice for earlier code is preserved in licenses/MIT-origin.txt.
+
+Corresponding source is available via the /opencode_source bot command.

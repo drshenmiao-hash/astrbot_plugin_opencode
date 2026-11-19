@@ -446,7 +446,7 @@ class Engine:
                 self._account(job, code)
                 if not job.future.done():
                     if error is not None:
-                        job.future.set_exception(error)
+                        job.future.set_exception(error.with_traceback(None))
                     elif result is not None:
                         job.future.set_result(result)
                     else:

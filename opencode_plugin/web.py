@@ -12,13 +12,21 @@ _NO_CACHE = {"Cache-Control": "no-store"}
 class UsagePage:
     def __init__(self):
         self.active = False
+        self._context = None
 
     def register(self, context):
-        self.active = True
+        self._context = context
         context.register_web_api(ROUTE, self.handle, ["POST"], "OpenCode 用量与运行状态")
+        self.active = True
 
     def close(self):
         self.active = False
+        context, self._context = self._context, None
+        apis = getattr(context, "registered_web_apis", None)
+        if isinstance(apis, list):
+            # AstrBot 4.29/4.30 replace routes on registration and expose no
+            # unregister method. Remove only this instance's handler.
+            apis[:] = [api for api in apis if not (api[0] == ROUTE and api[1] == self.handle)]
 
     async def handle(self):
         from astrbot.api.web import json_response, request

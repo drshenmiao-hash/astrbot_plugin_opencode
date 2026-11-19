@@ -26,7 +26,10 @@ def settings_from(config):
             ("output_max_bytes", 2097152, 1024, 4194304),
             ("max_sessions", 128, 1, 4096),
         ):
-            value = int(config.get(name, default))
+            value = config.get(name, default)
+            if isinstance(value, bool) or not isinstance(value, (int, str)):
+                raise ValueError
+            value = int(value)
             if not minimum <= value <= maximum:
                 raise ValueError
             cfg[name] = value
@@ -35,10 +38,15 @@ def settings_from(config):
             ("bubblewrap_binary", "/usr/bin/bwrap"),
             ("auth_path", "~/.local/share/astrbot-opencode/opencode/auth.json"),
         ):
-            value = Path(config.get(name, default)).expanduser()
+            value = config.get(name, default)
+            if not isinstance(value, str) or any(c in value for c in "\r\n\x00"):
+                raise ValueError
+            value = Path(value).expanduser()
             if not value.is_absolute():
                 raise ValueError
             cfg[name] = str(value)
         return cfg
-    except (ValueError, TypeError, AttributeError, OverflowError):
+    except OpenCodeError:
+        raise
+    except (ValueError, TypeError, AttributeError, OverflowError, RuntimeError):
         raise OpenCodeError("config") from None

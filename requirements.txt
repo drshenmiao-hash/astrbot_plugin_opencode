@@ -1,0 +1,2 @@
+# Image validation uses the same Pillow baseline as AstrBot 4.29.4.
+Pillow>=11.2.1

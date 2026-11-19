@@ -8,7 +8,7 @@
 
 当前发布版本为 `v0.2.1`，可在 AstrBot 插件页用本仓库地址安装或更新，也可上传发布页的源码 ZIP。[v0.2.1 发布页](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/releases/tag/v0.2.1)
 
-适用 AstrBot 4.29.4 系列、Python 3.12+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
+适用 AstrBot 4.29.4 系列、Python 3.12+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
 - 原生 Ubuntu 可通过 `apt install bubblewrap` 安装隔离工具，并从 [OpenCode 官方发布页](https://github.com/anomalyco/opencode/releases/tag/v1.19.6) 安装对应架构的二进制。
 - Ubuntu 上的 Docker 或 1Panel 部署可以在独立测试编排中使用下面的镜像配方。配方面向 Linux amd64，基础镜像须有 apt。用你的 AstrBot 镜像标签替换示例变量，保留原有数据卷与启动设置。如果基础镜像使用非 root 用户，用 `--build-arg ASTRBOT_USER=原用户` 保留该用户。
@@ -53,6 +53,8 @@ OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片�
 
 CLI、认证或模型校验失败时，用量页仍会显示历史记录和启动失败原因。启动时的暂时性故障最多尝试 3 次，已有模型的后续请求可在冷却后共用一次校验。认证和模型配置错误需处理后重载。当前聊天失败时提示由 AstrBot 处理后续响应。
 
+使用 `/opencode_source` 可查看许可证和此版本的源码地址。
+
 ## 验证与升级
 
 在可以导入 AstrBot 4.29.4 的 Python 环境运行：
@@ -70,5 +72,7 @@ OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official
 真实服务商账号和 QQ 联动需在安装环境中验证。
 
 更新时上传新版 ZIP 后重载插件。使用测试编排检查 CLI 和 bubblewrap 的兼容性。需要恢复时可换回旧 ZIP，统计和认证目录可独立保留。
+
+会话、图片和校验恢复逻辑改编自 [astrbot_plugin_cursor](https://github.com/drshenmiao-hash/astrbot_plugin_cursor)，原生 Provider 注册与重载流程借鉴 [astrbot_plugin_openai_oauth](https://github.com/wcqqq1214/astrbot_plugin_openai_oauth)。
 
 [AGPL-3.0](LICENSE) · [来源及许可说明](NOTICE) · [OpenCode ACP 文档](https://opencode.ai/docs/acp/)
