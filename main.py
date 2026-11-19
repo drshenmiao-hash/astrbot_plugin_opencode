@@ -14,7 +14,7 @@ from .opencode_plugin.web import UsagePage
 __all__ = ["OpenCodeCLIPlugin", "OpenCodeCLIProvider"]
 
 
-@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 聊天 Provider", "0.2.1")
+@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 聊天 Provider", "0.2.2")
 class OpenCodeCLIPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -55,8 +55,8 @@ class OpenCodeCLIPlugin(Star):
     async def opencode_source(self, event: AstrMessageEvent):
         """Show the license and corresponding source for this bot plugin."""
         yield event.plain_result(
-            "astrbot_plugin_opencode v0.2.1 · AGPL-3.0\n"
-            "源码：https://github.com/drshenmiao-hash/astrbot_plugin_opencode/tree/v0.2.1"
+            "astrbot_plugin_opencode v0.2.2 · AGPL-3.0\n"
+            "源码：https://github.com/drshenmiao-hash/astrbot_plugin_opencode/tree/main"
         )
 
     @filter.permission_type(filter.PermissionType.ADMIN)

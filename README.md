@@ -6,7 +6,7 @@
 
 ## 安装
 
-当前发布版本为 `v0.2.1`，可在 AstrBot 插件页用本仓库地址安装或更新，也可上传发布页的源码 ZIP。[v0.2.1 发布页](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/releases/tag/v0.2.1)
+默认分支 `main` 提供 `v0.2.2`，包含资源清理和图片依赖声明修复。可在 AstrBot 插件页用仓库 URL 安装或更新，也可上传源码 ZIP。[main 源码 ZIP](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/heads/main.zip)
 
 适用 AstrBot 4.29.4 系列、Python 3.12+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
@@ -16,7 +16,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.2.1 .
+  -t astrbot-with-opencode:0.2.2 .
 ```
 
 使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
