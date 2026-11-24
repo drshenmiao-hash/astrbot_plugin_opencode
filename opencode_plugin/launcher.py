@@ -197,7 +197,12 @@ class ProcessOwner:
             raise OpenCodeError("image_capability_unverified")
         argv, env, cwd = self._command
         model = self.cfg["model"]
-        provider = model.split("/", 1)[0]
+        provider, model_id = model.split("/", 1)
+        # The CLI can exit with large verbose catalogs still buffered on stdout.
+        # Its whitelist filters built-in models without declaring a new model.
+        config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
+        config["provider"] = {provider: {"whitelist": [model_id]}}
+        env = {**env, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
         process = None
         try:
             async with asyncio.timeout(5):

@@ -41,7 +41,7 @@ OpenCode 仅使用所选服务商写入专用 `auth.json` 的 API Key。通过�
 
 ## 图片输入
 
-OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片时用同一隔离环境下的官方 `opencode models --verbose` 核对当前模型的图片能力，不额外调用模型。模型不支持时返回 `image_unsupported`，可在设置中用 `image_unsupported_message` 自定义提示。能力无法确认时返回 `image_capability_unverified`。模型 ID 仍由 ACP 校验。
+OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片时用同一隔离环境下的官方 `opencode models --verbose` 仅读取已选模型的目录项，核对当前模型的图片能力，不额外调用模型。模型不支持时返回 `image_unsupported`，可在设置中用 `image_unsupported_message` 自定义提示。能力无法确认时返回 `image_capability_unverified`。模型 ID 仍由 ACP 校验。
 
 每轮最多 4 张静态 PNG、JPEG 或 WebP，单张最多 2 MiB，合计最多 4 MiB，每张最多 400 万像素。只接收 AstrBot 准备好的内联数据或其临时目录内的普通文件，不直接下载 URL。超限时日志会记录具体限制和已测得的值。发送给 ACP 的只有当前轮附件。会话重建时保留历史文字并标记旧图缺失，已复用会话中的历史仍由 OpenCode 管理。`wire_bytes` 只统计插件发送的 ACP 帧。
 

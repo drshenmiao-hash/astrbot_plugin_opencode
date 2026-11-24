@@ -134,7 +134,9 @@ async def exercise_host(phase):
         env = kwargs.get("env", {})
         if "OPENCODE_CONFIG_CONTENT" in env:
             config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
-            config["provider"] = {"deepseek": {"options": {"baseURL": url + "/v1"}}}
+            config.setdefault("provider", {}).setdefault("deepseek", {})["options"] = {
+                "baseURL": url + "/v1"
+            }
             kwargs["env"] = {**env, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
         return await spawn(*args, **kwargs)
 

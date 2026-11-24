@@ -116,9 +116,10 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
                 # production configuration and the sandbox both run as shipped.
                 env = kwargs["env"]
                 config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
-                config["provider"] = {
-                    provider: {"options": {"baseURL": f"http://127.0.0.1:{port}/v1"}}
-                }
+                options = config.setdefault("provider", {}).setdefault(provider, {})
+                if "models" in args:
+                    self.assertEqual(options["whitelist"], [slug])
+                options["options"] = {"baseURL": f"http://127.0.0.1:{port}/v1"}
                 kwargs["env"] = {**env, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
                 process = await create_process(*args, **kwargs)
                 started.append((process, kwargs["cwd"]))
