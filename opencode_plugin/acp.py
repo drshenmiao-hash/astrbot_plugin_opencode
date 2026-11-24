@@ -3,18 +3,14 @@
 import asyncio
 import json
 import time
+from io import StringIO
 
 from astrbot.api import logger
 
 from .errors import ImageLimitError, OpenCodeError, OpenCodeStreamError
 from .images import MAX_IMAGE_FRAME_BYTES
 from .launcher import CHAT_MODE
-from .logic import (
-    classify_chunk_tail_error,
-    classify_error,
-    classify_image_error,
-    classify_reply_error,
-)
+from .logic import classify_error, classify_stream_error
 from .models import ModelResolutionError, resolve_model
 
 
@@ -36,9 +32,6 @@ class ACPClient:
         self.failure_code = None
         self.stderr_sample = bytearray()
         self.last_activity = time.monotonic()
-        self._ready_future = asyncio.get_running_loop().create_future()
-        if ready is not None:
-            self._ready_future.set_result(ready)
 
     async def _discard_stderr(self):
         # Retain at most 8 KiB privately for dependency error classification.
@@ -70,44 +63,41 @@ class ACPClient:
         future = asyncio.get_running_loop().create_future()
         self.pending[request_id] = future
         try:
-            sent_bytes = await self._write(
-                {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
-                image_prompt=image_prompt,
-            )
-            if method == "session/prompt" and params.get("sessionId") in self.turns:
-                self.turns[params["sessionId"]]["wire_bytes"] = sent_bytes
-            if timeout is None:
+            async with asyncio.timeout(timeout):
+                sent_bytes = await self._write(
+                    {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
+                    image_prompt=image_prompt,
+                )
+                if method == "session/prompt" and params.get("sessionId") in self.turns:
+                    self.turns[params["sessionId"]]["wire_bytes"] = sent_bytes
                 return await future
-            return await asyncio.wait_for(future, timeout)
         except asyncio.TimeoutError:
             raise OpenCodeError("startup_timeout") from None
         finally:
             self.pending.pop(request_id, None)
             if not future.done():
                 future.cancel()
+            elif not future.cancelled():
+                future.exception()  # The reader may fail while stdin is draining.
 
     async def notify(self, method, params):
         await self._write({"jsonrpc": "2.0", "method": method, "params": params})
 
     async def start(self):
-        try:
-            await asyncio.wait_for(asyncio.shield(self._ready_future), 20)
-            self.initialized = await self.call(
-                "initialize",
-                {
-                    "protocolVersion": 1,
-                    "clientCapabilities": {
-                        "fs": {"readTextFile": False, "writeTextFile": False},
-                        "terminal": False,
-                    },
-                    "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.2.2"},
+        self.initialized = await self.call(
+            "initialize",
+            {
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": {"readTextFile": False, "writeTextFile": False},
+                    "terminal": False,
                 },
-                timeout=30,
-            )
-            if self.initialized.get("protocolVersion") != 1:
-                raise OpenCodeError("protocol")
-        except asyncio.TimeoutError:
-            raise OpenCodeError("startup_timeout") from None
+                "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.2.2"},
+            },
+            timeout=30,
+        )
+        if self.initialized.get("protocolVersion") != 1:
+            raise OpenCodeError("protocol")
 
     @staticmethod
     def _option(result, option_id):
@@ -145,6 +135,9 @@ class ACPClient:
     async def new_session(self, model):
         result = await self._open_session()
         session_id = result["sessionId"]
+        if session_id in self.session_models:
+            raise OpenCodeError("protocol")
+        self.session_models[session_id] = None  # Reserve before the next await.
         try:
             model = resolve_model(model, self._models(result))
         except ModelResolutionError as exc:
@@ -170,7 +163,7 @@ class ACPClient:
             )
             if not isinstance(supported, dict) or supported.get("image") is not True:
                 raise OpenCodeError("image_unsupported")
-        state = {"parts": [], "size": 0, "error": None}
+        state = {"text": StringIO(), "size": 0, "error": None}
         self.turns[session_id] = state
         try:
             result = await self.call(
@@ -192,20 +185,9 @@ class ACPClient:
                 "refusal",
             }:
                 raise OpenCodeError("cli_failed")
-            text = "".join(state["parts"])
+            text = state["text"].getvalue()
             if not text.strip():
                 raise OpenCodeError("empty_output")
-            if images:
-                image_error = classify_image_error(text, reply=True) or classify_image_error(
-                    state["parts"][-1], reply=True
-                )
-                if image_error:
-                    raise OpenCodeError(image_error)
-            error_code = classify_reply_error(text) or classify_chunk_tail_error(
-                text, state["parts"]
-            )
-            if error_code:
-                raise OpenCodeStreamError(error_code)
             return {"text": text, "wire_bytes": state.get("wire_bytes", 0)}
         except OpenCodeStreamError:
             raise
@@ -251,11 +233,15 @@ class ACPClient:
         await self._write({"jsonrpc": "2.0", "id": message["id"], "result": result})
 
     def _update(self, params):
-        state = self.turns.get(params.get("sessionId"))
-        if state is None:
+        if not isinstance(params.get("sessionId"), str):
+            raise OpenCodeError("protocol")
+        state = self.turns.get(params["sessionId"])
+        if state is None or state["error"]:
             return
         update = params.get("update", {})
         kind = update.get("sessionUpdate")
+        if not isinstance(kind, str):
+            raise OpenCodeError("protocol")
         if kind == "agent_message_chunk":
             content = update.get("content", {})
             if content.get("type") != "text" or not isinstance(content.get("text"), str):
@@ -266,13 +252,17 @@ class ACPClient:
             if state["size"] > self.output_limit:
                 state["error"] = "output_limit"
                 return not state.get("cancel_sent", False)
-            state["parts"].append(text)
+            if text:
+                state["text"].write(text)
         elif kind == "current_mode_update" and update.get("currentModeId") != CHAT_MODE:
             state["error"] = "chat_mode_required"
         elif kind == "config_option_update":
             mode = self._option(update, "mode")
             if mode and mode.get("currentValue") != CHAT_MODE:
                 state["error"] = "chat_mode_required"
+            model = self._option(update, "model")
+            if model and model.get("currentValue") != self.session_models.get(params["sessionId"]):
+                state["error"] = "model_mismatch"
         elif kind in {"tool_call", "tool_call_update"}:
             state["error"] = "tool_blocked"
         return bool(state["error"]) and not state.get("cancel_sent", False)
@@ -307,11 +297,18 @@ class ACPClient:
                         # raw RPC error data, which can include prompts or URLs.
                         if error.get("code") == -32000:
                             code = "not_logged_in"
+                        elif (
+                            error.get("code") == -32602
+                            and isinstance(error.get("data"), dict)
+                            and isinstance(error["data"].get("sessionId"), str)
+                            and error.get("message") == f"session not found: {error['data']['sessionId']}"
+                        ):
+                            code = "session_missing"
                         else:
                             message_text = str(error.get("message", ""))
                             code = classify_error(message_text)
                             if code in {"cli_failed", "timeout"}:
-                                code = classify_reply_error(message_text) or code
+                                code = classify_stream_error(message_text) or code
                         future.set_exception(OpenCodeError(code))
                     elif isinstance(message.get("result"), dict):
                         future.set_result(message["result"])
@@ -319,6 +316,8 @@ class ACPClient:
                         future.set_exception(OpenCodeError("protocol"))
         except asyncio.CancelledError:
             return
+        except OSError:
+            failure = "process_exited"
         except OpenCodeError as exc:
             failure = exc.code
         except (ValueError, UnicodeError, RecursionError, TypeError, AttributeError):
@@ -326,16 +325,12 @@ class ACPClient:
         finally:
             self.closed = True
             self.failure_code = failure
-            if not self._ready_future.done():
-                self._ready_future.set_exception(OpenCodeError(failure))
             for future in list(self.pending.values()):
                 if not future.done():
                     future.set_exception(OpenCodeError(failure))
 
     async def close(self):
         self.closed = True
-        if not self._ready_future.done():
-            self._ready_future.cancel()
         for task in (self._reader_task, self._stderr_task):
             task.cancel()
         await asyncio.gather(self._reader_task, self._stderr_task, return_exceptions=True)

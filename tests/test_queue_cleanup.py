@@ -82,18 +82,21 @@ class QueueCleanupTests(unittest.IsolatedAsyncioTestCase):
         queued = self.submit("queued")
         await self.wait_for_slot_to_fill()
 
+        waiting = self.submit("waiting-for-capacity")
+        await asyncio.sleep(0)
+
         async def notify(*_args):
             self.release.set()
 
         self.client.notify = notify
         with patch("opencode_plugin.engine.record") as record:
             await self.engine.close()
-        for task in (self.first, queued):
+        for task in (self.first, queued, waiting):
             with self.assertRaises(OpenCodeError) as error:
-                await task
+                await asyncio.wait_for(task, 1)
             self.assertEqual(error.exception.code, "closed")
         finished = [
             call.kwargs for call in record.call_args_list if call.args == ("request_finished",)
         ]
-        self.assertCountEqual([entry["session"] for entry in finished], ["active", "queued"])
+        self.assertCountEqual([entry["session"] for entry in finished], ["active", "queued", "waiting-for-capacity"])
         self.assertTrue(all(entry["code"] == "closed" for entry in finished))

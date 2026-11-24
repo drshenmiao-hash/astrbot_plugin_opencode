@@ -48,6 +48,7 @@ class ProcessOwner:
         self.process = None
         self.scratch = None
         self._command = None
+        self._close_lock = asyncio.Lock()
         self._image_support = None
 
     @property
@@ -65,10 +66,13 @@ class ProcessOwner:
         roots = [
             Path(name) for name in ("/usr/bin", "/usr/lib", "/lib", "/lib64") if Path(name).exists()
         ]
-        for location in self.cfg["protected_paths"]:
-            for root in roots:
-                if Path(location).resolve().is_relative_to(root.resolve()):
-                    raise OpenCodeError("sandbox_path_conflict")
+        system_files = [
+            Path(name) for name in ("/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/ssl/certs")
+            if Path(name).exists()
+        ]
+        for location in (*self.cfg["protected_paths"], self.cfg["auth_path"]):
+            if any(Path(location).resolve().is_relative_to(path.resolve()) for path in (*roots, *system_files)):
+                raise OpenCodeError("sandbox_path_conflict")
         self.scratch = TemporaryDirectory(prefix="astrbot-opencode-")
         root = Path(self.scratch.name)
         home, work = root / "home", root / "work"
@@ -139,9 +143,8 @@ class ProcessOwner:
         argv.extend(
             ["--symlink", "usr/bin", "/bin", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
         )
-        for path in ("/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/ssl/certs"):
-            if Path(path).exists():
-                argv.extend(["--ro-bind", path, path])
+        for path in system_files:
+            argv.extend(["--ro-bind", str(path), str(path)])
         argv.extend(
             [
                 "--ro-bind",
@@ -239,28 +242,29 @@ class ProcessOwner:
         return image
 
     async def close(self):
-        process, self.process = self.process, None
-        self._command = None
-        self._image_support = None
-        try:
-            if process is not None:
-                process.stdin.close()
-                try:
-                    await asyncio.wait_for(process.wait(), 2)
-                except asyncio.TimeoutError:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    for stream in (process.stdout, process.stderr):
-                        transport = getattr(stream, "_transport", None)
-                        if transport is not None:
-                            transport.close()
+        async with self._close_lock:
+            process, self.process = self.process, None
+            self._command = None
+            self._image_support = None
+            try:
+                if process is not None:
+                    process.stdin.close()
                     try:
                         await asyncio.wait_for(process.wait(), 2)
                     except asyncio.TimeoutError:
-                        raise OpenCodeError("cleanup_timeout") from None
-        finally:
-            if self.scratch is not None:
-                self.scratch.cleanup()
-                self.scratch = None
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                        for stream in (process.stdout, process.stderr):
+                            transport = getattr(stream, "_transport", None)
+                            if transport is not None:
+                                transport.close()
+                        try:
+                            await asyncio.wait_for(process.wait(), 2)
+                        except asyncio.TimeoutError:
+                            raise OpenCodeError("cleanup_timeout") from None
+            finally:
+                if self.scratch is not None:
+                    self.scratch.cleanup()
+                    self.scratch = None

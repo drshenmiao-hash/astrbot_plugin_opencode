@@ -146,6 +146,8 @@ class Engine:
                 await self.queue.discard(job)
             await asyncio.gather(notice, return_exceptions=True)
             self._jobs.pop(job.request_id, None)
+            if job.future.done() and not job.future.cancelled():
+                job.future.exception()  # Shutdown can also wake a blocked queue.put().
 
     def _reuse(self, messages, scope):
         cached = self.sessions.get(scope) if scope else None
@@ -270,12 +272,13 @@ class Engine:
 
     async def _cancel_turn(self, client, session_id, turn):
         try:
-            await client.notify("session/cancel", {"sessionId": session_id})
-            try:
-                await asyncio.wait_for(asyncio.shield(turn), 5)
-            except OpenCodeError as exc:
-                if exc.code != "cancelled":
-                    raise
+            async with asyncio.timeout(5):
+                await client.notify("session/cancel", {"sessionId": session_id})
+                try:
+                    await asyncio.shield(turn)
+                except OpenCodeError as exc:
+                    if exc.code != "cancelled":
+                        raise
             record("cancel_confirmed")
         except (OpenCodeError, asyncio.TimeoutError, OSError):
             # No acknowledgement: stop the transport/runtime rather than reusing
@@ -497,6 +500,7 @@ class Engine:
 
     async def close(self):
         self.closed = True
+        await self.queue.close()
         jobs = list(self._jobs.values())
         for job in jobs:
             job.cancel.set()

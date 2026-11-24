@@ -12,12 +12,6 @@ _TRAILING_REASONING_CLOSE = re.compile(r"</(?:think|thinking)>\s*$")
 _ASTRNA_REPLY_MARKER = re.compile(
     r"<(astrna_(?:reply_target|quoted_sender|quoted_reply_target))>.*?</\1>", re.DOTALL
 )
-_MACHINE_CHUNK_TAIL = re.compile(
-    r"(?:error[ \t]*:[ \t]*)*retriableerror[ \t]*:[ \t]*"
-    r"(?:\[unavailable\][ \t]*)?(?:connection[ \t]+stalled|ping[ \t]+timed[ \t]+out)"
-    r"[.!]?[ \t]*$",
-    re.IGNORECASE,
-)
 _IMAGE_UNSUPPORTED = re.compile(
     r"\b(?:does not|doesn['’]t|cannot) (?:support|accept) "
     r"(?:images?|image inputs?|image attachments?|vision|multimodal inputs?)\b"
@@ -261,9 +255,8 @@ def queue_execution_order(requests, *, active_sessions=()):
     return ordered
 
 
-def classify_image_error(raw, *, reply=False):
+def classify_image_error(raw):
     text = raw.strip().casefold()
-    prefixed = text.startswith(("error:", "image error:"))
     text = text.removeprefix("error:").strip().removeprefix("image error:").strip()
     text = text.removeprefix("[invalid_argument]").strip()
     if (
@@ -271,14 +264,10 @@ def classify_image_error(raw, *, reply=False):
         or text.rstrip(".!") == "invalid image"
     ):
         return "image_unavailable"
-    if not reply or prefixed:
-        if _IMAGE_UNSUPPORTED.search(text):
-            return "image_unsupported"
-        if text.startswith("invalid image:"):
-            return "image_unavailable"
-    concise = re.sub(r"^(?:(?:this|the|current|selected) )?model ", "", text.rstrip(".!"))
-    if _IMAGE_UNSUPPORTED.fullmatch(concise):
+    if _IMAGE_UNSUPPORTED.search(text):
         return "image_unsupported"
+    if text.startswith("invalid image:"):
+        return "image_unavailable"
     return None
 
 
@@ -327,8 +316,8 @@ def classify_error(raw, *, stage="request"):
     return "cli_failed"
 
 
-def classify_reply_error(text):
-    """Recognize machine error replies, not prose that mentions an error phrase."""
+def classify_stream_error(text):
+    """Classify diagnostics from JSON-RPC errors only."""
     lines = text.strip().splitlines()
     if not lines:
         return None
@@ -354,20 +343,4 @@ def classify_reply_error(text):
         if re.search(r"\bping\s+timed\s+out\b", reason):
             return "ping_timeout"
         return "upstream_retryable"
-    return None
-
-
-def classify_chunk_tail_error(text, chunks):
-    """Check a terminal machine diagnostic starting in a separate ACP text chunk."""
-    trimmed = text.rstrip()
-    match = _MACHINE_CHUNK_TAIL.search(trimmed, max(0, len(trimmed) - 256))
-    if not match:
-        return None
-    offset = 0
-    for chunk in chunks:
-        if offset + len(chunk) - len(chunk.lstrip()) == match.start():
-            return classify_reply_error(match[0])
-        offset += len(chunk)
-        if offset > match.start():
-            break
     return None

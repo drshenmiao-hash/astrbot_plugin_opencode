@@ -98,7 +98,10 @@ class Peer:
                 if "tool" in script:
                     self.update(sid, sessionUpdate="tool_call")
                 if "error" in script:
-                    self.send(id=msg["id"], error={"code": -32603, "message": script["error"]})
+                    error = script["error"]
+                    if isinstance(error, str):
+                        error = {"code": -32603, "message": error}
+                    self.send(id=msg["id"], error=error)
                     return
                 for text in script.get("chunks", []):
                     self.update(
@@ -168,29 +171,33 @@ class ACPTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([p["sessionId"] for p in self.peer.prompts], ["1", "2"])
         self.assertIn("ping_timeout", "\n".join(logs.output))
 
-    async def test_error_text_is_never_returned_as_reply(self):
-        self.peer.replies.append({"chunks": ["Error: RetriableError: ", "Connection stalled"]})
-        with self.assertRaises(OpenCodeError) as error:
-            await self.submit([{"role": "user", "content": "测试"}])
-        self.assertEqual(error.exception.code, "connection_stalled")
-        self.assertEqual(self.engine.sessions, {})
+    async def test_successful_replies_can_discuss_errors_verbatim(self):
+        chunks = ["Partial reply", " Error: RetriableError: [unavailable] PING timed out"]
+        self.peer.replies.append({"chunks": chunks})
+        messages = [{"role": "user", "content": "quote the diagnostic"}]
+        self.assertEqual(await retry_stream_errors(lambda: self.submit(messages)), "".join(chunks))
+        self.assertEqual(len(self.peer.prompts), 1)
 
-    async def test_terminal_error_chunk_retries_and_total_attempts_are_respected(self):
-        script = {
-            "chunks": ["Partial reply", "  Error: RetriableError: [unavailable] PING timed out"]
-        }
-        self.peer.replies.extend([script, {"chunks": ["OK"]}])
-        messages = [{"role": "user", "content": "question"}]
-        self.assertEqual(await retry_stream_errors(lambda: self.submit(messages)), "OK")
-        self.assertEqual(len(self.peer.prompts), 2)
-        self.peer.replies.append(script)
+    async def test_expired_session_is_evicted_then_history_is_rebuilt(self):
+        missing = {"code": -32602, "message": "session not found: 1", "data": {"sessionId": "1"}}
+        self.peer.replies.extend([{"chunks": ["first"]}, {"error": missing}, {"chunks": ["next"]}])
+        history = [{"role": "user", "content": "original"}]
+        await self.submit(history)
+        history.extend([{"role": "assistant", "content": "first"}, {"role": "user", "content": "again"}])
         with self.assertRaises(OpenCodeError) as error:
-            await retry_stream_errors(
-                lambda: self.submit(messages + [{"role": "user", "content": "other"}]),
-                request_max_retries=1,
-            )
-        self.assertEqual(error.exception.code, "ping_timeout")
-        self.assertEqual(len(self.peer.prompts), 3)
+            await self.submit(history)
+        self.assertEqual(error.exception.code, "session_missing")
+        self.assertFalse(self.engine.sessions)
+        self.assertEqual(await self.submit(history), "next")
+        self.assertEqual([p["sessionId"] for p in self.peer.prompts], ["1", "1", "2"])
+        self.assertIn("original", self.peer.prompts[-1]["prompt"][0]["text"])
+
+    async def test_rpc_deadline_includes_a_blocked_stdin_drain(self):
+        self.peer.process.stdin.drain = asyncio.Event().wait
+        with self.assertRaises(OpenCodeError) as error:
+            await asyncio.wait_for(self.client.call("initialize", {}, timeout=0.02), 1)
+        self.assertEqual(error.exception.code, "startup_timeout")
+        self.assertFalse(self.client.pending)
 
     async def test_rejected_api_key_is_a_safe_failure_without_retry(self):
         self.peer.replies.append({"error": "Incorrect API key provided: fixture-secret"})

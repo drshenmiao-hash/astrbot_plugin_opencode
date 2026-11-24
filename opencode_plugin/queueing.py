@@ -3,6 +3,7 @@
 import asyncio
 import time
 
+from .errors import OpenCodeError
 from .logic import queue_execution_order
 
 
@@ -10,6 +11,7 @@ class RequestQueue:
     def __init__(self, maxsize, *, reorder_window=0.025):
         self.maxsize = maxsize
         self.reorder_window = reorder_window
+        self.closed = False
         self.pending = []
         self.active = set()
         self.condition = asyncio.Condition()
@@ -19,8 +21,16 @@ class RequestQueue:
 
     async def put(self, job):
         async with self.condition:
-            await self.condition.wait_for(lambda: len(self.pending) < self.maxsize)
+            await self.condition.wait_for(lambda: self.closed or len(self.pending) < self.maxsize)
+            if self.closed:
+                raise OpenCodeError("closed")
             self.pending.append(job)
+            self.condition.notify_all()
+
+    async def close(self):
+        async with self.condition:
+            self.closed = True
+            self.pending.clear()
             self.condition.notify_all()
 
     async def discard(self, job):

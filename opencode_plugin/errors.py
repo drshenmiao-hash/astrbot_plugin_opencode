@@ -38,6 +38,7 @@ MESSAGES = {
     "empty_output": "OpenCode 没有返回文本回复。",
     "transport": "OpenCode 无法启动，请检查 CLI 路径和隔离环境。",
     "tool_blocked": "OpenCode 纯聊天模式已阻止工具调用。",
+    "session_missing": "OpenCode 会话已失效。重新发送即可使用 AstrBot 历史重建会话。",
     "process_exited": "OpenCode 常驻进程退出；本次不会自动重试。",
     "cancelled": "OpenCode 请求已取消。",
     "cancel_unconfirmed": "远端取消未确认，已关闭连接；请核对用量。",
