@@ -2,24 +2,24 @@
 
 让 AstrBot 的 QQ 机器人通过官方 `opencode acp` 使用明确指定的模型。插件会在校验模型后注册原生 `opencode_cli` 来源，模型以 `opencode_cli:provider/model` 显示。需要使用时，在目标会话里选择它即可。
 
-插件支持文本、兼容模型的图片输入、会话复用、system 增量、排队提示「呜呜等一下」、断流单次重试和本地用量管理页。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
+插件支持流式文本、兼容模型的图片输入、会话复用、system 增量、排队提示「呜呜等一下」、首段输出前特定上游错误的单次重试和本地用量管理页。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
 
 ## 安装
 
-默认分支 `main` 提供 `v0.2.2`，包含资源清理和图片依赖声明修复。可在 AstrBot 插件页用仓库 URL 安装或更新，也可上传源码 ZIP。[main 源码 ZIP](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/heads/main.zip)
+在 AstrBot WebUI 的**插件管理**中通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 v0.3.0 的 Source code (zip)。[下载发布包](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.3.0.zip)
 
-适用 AstrBot 4.29.4 系列、Python 3.12+ 和 Linux。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
+需要 Linux、Python 3.12+ 和 AstrBot 4.29.4 或兼容的 4.x。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
-- 原生 Ubuntu 可通过 `apt install bubblewrap` 安装隔离工具，并从 [OpenCode 官方发布页](https://github.com/anomalyco/opencode/releases/tag/v1.19.6) 安装对应架构的二进制。
+- 原生 Ubuntu 可通过 `apt install bubblewrap` 安装隔离工具，并从 [OpenCode 官方发布页](https://github.com/anomalyco/opencode/releases/tag/v1.19.6) 安装对应架构的二进制。将解压的 `opencode` 放在 `/usr/local/bin/opencode`，或在插件设置中指定其绝对路径。可先运行 `opencode --version` 核对版本。
 - Ubuntu 上的 Docker 或 1Panel 部署可以在独立测试编排中使用下面的镜像配方。配方面向 Linux amd64，基础镜像须有 apt。用你的 AstrBot 镜像标签替换示例变量，保留原有数据卷与启动设置。如果基础镜像使用非 root 用户，用 `--build-arg ASTRBOT_USER=原用户` 保留该用户。
 
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.2.2 .
+  -t astrbot-with-opencode:0.3.0 .
 ```
 
-使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
+容器部署请将下面的专用认证目录放在持久卷中。使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
 
 ```bash
 OPENCODE_AUTH_DATA="$HOME/.local/share/astrbot-opencode"
@@ -29,9 +29,11 @@ chmod 600 "$OPENCODE_AUTH_DATA/opencode/auth.json"
 XDG_DATA_HOME="$OPENCODE_AUTH_DATA" /usr/local/bin/opencode models
 ```
 
-1. 在 AstrBot 插件页上传源码 ZIP，或把此目录放到 `data/plugins/astrbot_plugin_opencode/`。
-2. 在插件设置填写 `model_id`，例如你在模型列表里看到且准备使用的 `opencode/big-pickle`。填写 CLI 和专用 `auth.json` 的绝对路径，或使用上面的默认路径。保存并重载。
-3. 校验会连接本地官方 CLI，枚举 ACP 模型选项，并确认使用专用聊天 agent。通过后插件自动注册模型。首次聊天前，请在目标会话手动选择它。
+1. 打开插件设置，填写 `model_id`，使用上一步列出的完整 `provider/model`。核对 CLI 和专用 `auth.json` 的路径，保存并重载。
+2. 在插件详情打开**用量与运行状态**。出现所选模型和「等待请求」表示 ACP 握手、模型目录和聊天模式校验通过。首条消息才会使用服务商凭证生成回答。
+3. 管理员在目标会话发送 `/provider`，找到 `opencode_cli:provider/model` 对应的序号，然后发送 `/provider 序号`。发送「请记住蓝色」，再问「刚才是什么颜色？」。可在用量页核对成功次数和会话复用。AstrBot 开启流式回复时，插件逐段传递 ACP 文本，并返回一条完整终稿。
+
+OpenCode 会话在内存中按 Provider、消息来源、发送者和 AstrBot 会话标识区分。同一会话的请求串行。群聊是否包含其他成员的历史取决于 AstrBot 的群聊配置。历史改变、插件重载或进程重启后，下次请求会从 AstrBot 提供的历史重建会话；没有稳定标识的调用每次新建。
 
 切换 `model_id` 后，原先自动注册的模型保留其 ID 和配置并暂停使用。切回旧模型时，只恢复插件因模型切换而停用的条目。已保存的默认模型和会话选择由 AstrBot 管理，切换后可在目标会话手动选择新模型。
 
@@ -45,7 +47,7 @@ OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片�
 
 ## 隔离与统计
 
-运行时创建临时 HOME 和空工作目录，只复制选定服务商的认证条目。OpenCode 使用专用文本 agent、拒绝工具权限，ACP 也拒绝权限请求。应用按固定清单传递环境变量，以 bubblewrap 隔离文件和进程视图。CLI 需要网络访问所选服务商。容器内如果无法创建隔离，插件会返回错误。
+运行时创建临时 HOME 和空工作目录，只复制选定服务商的认证条目。OpenCode 使用专用文本 agent、拒绝工具权限，ACP 也拒绝权限请求。应用按固定清单传递环境变量，以 bubblewrap 隔离文件和进程视图。插件管理 `opencode acp` 子进程，通过标准输入输出交换 JSON-RPC。CLI 内部 HTTP 服务绑定回环地址并使用每次启动生成的密码。用户无需启动 `opencode serve` 或填写远程 API 地址。CLI 需要网络访问所选服务商。容器内如果无法创建隔离，插件会返回错误。
 
 登录 AstrBot WebUI，在 OpenCode 插件详情打开 **用量与运行状态**。页面显示当前模型、CLI 状态、排队和执行中的请求数，也可以查看近 7、30 或 90 天的请求趋势、成功率、耗时、流量和进程／会话复用情况。明细支持按模型、匿名会话和结果分组。聊天中的管理员命令 `/opencode_usage` 仍可使用，附加 `session`、`day`、`model` 可查看分组。
 
@@ -69,9 +71,18 @@ python -m unittest discover -s tests
 OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official_cli -v
 ```
 
-真实服务商账号和 QQ 联动需在安装环境中验证。
+宿主安装与升级集成测试会在独立的 AstrBot 数据目录中安装 ZIP、选择模型、流式对话、取消、终止 CLI，再以新 Python 进程读取已保存的对话。可用 `OPENCODE_TEST_PREVIOUS_ZIP` 指向旧版 ZIP，`OPENCODE_TEST_ZIP` 指向待发布 ZIP。运行 `OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_host_install -v`。这两组集成测试使用回环模型服务和测试密钥。实际服务商账号和 QQ 投递需在部署环境中验证。
 
-更新时上传新版 ZIP 后重载插件。使用测试编排检查 CLI 和 bubblewrap 的兼容性。需要恢复时可换回旧 ZIP，统计和认证目录可独立保留。
+| 状态或错误码 | 处理方法 |
+| --- | --- |
+| `cli_missing` / `sandbox_missing` | 在 AstrBot 所在的容器或主机核对 CLI、bubblewrap 的绝对路径和执行权限。 |
+| `sandbox_unavailable` | 检查部署环境是否允许 bubblewrap 创建 Linux 用户和进程命名空间。 |
+| `not_logged_in` / `auth_permissions` | 用 AstrBot 的系统用户在专用 XDG 目录重新登录对应服务商，核对文件路径和权限后重载。 |
+| `model_unavailable` | 核对 `opencode models`、服务商前缀和 CLI 版本后重载。 |
+| `session_missing` / `process_exited` | 当前请求已失败。再次发送会从宿主历史重建；流中断前可能已显示部分回复。 |
+| `timeout` / `queue_timeout` | 前者已开始执行并进入取消流程，重发前可核对用量。后者在排队阶段到期。 |
+
+在 WebUI 插件管理中检查更新并更新到 v0.3.0，也可上传 Release ZIP 覆盖安装。配置字段、原生模型 ID 和统计库兼容旧版，升级后在用量页确认所选模型。新的会话隔离规则会生成新的匿名统计标签，旧记录仍可查询。回退时可上传旧版 Release ZIP。
 
 会话、图片和校验恢复逻辑改编自 [astrbot_plugin_cursor](https://github.com/drshenmiao-hash/astrbot_plugin_cursor)，原生 Provider 注册与重载流程借鉴 [astrbot_plugin_openai_oauth](https://github.com/wcqqq1214/astrbot_plugin_openai_oauth)。
 

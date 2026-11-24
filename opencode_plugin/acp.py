@@ -7,6 +7,7 @@ from io import StringIO
 
 from astrbot.api import logger
 
+from . import __version__
 from .errors import ImageLimitError, OpenCodeError, OpenCodeStreamError
 from .images import MAX_IMAGE_FRAME_BYTES
 from .launcher import CHAT_MODE
@@ -92,7 +93,7 @@ class ACPClient:
                     "fs": {"readTextFile": False, "writeTextFile": False},
                     "terminal": False,
                 },
-                "clientInfo": {"name": "astrbot_plugin_opencode", "version": "0.2.2"},
+                "clientInfo": {"name": "astrbot_plugin_opencode", "version": __version__},
             },
             timeout=30,
         )

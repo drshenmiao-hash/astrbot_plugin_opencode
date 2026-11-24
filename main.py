@@ -6,7 +6,7 @@ from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 
-from .opencode_plugin import runtime
+from .opencode_plugin import __version__, runtime
 from .opencode_plugin.errors import OpenCodeError
 from .opencode_plugin.provider import OpenCodeCLIProvider, register_adapter, unregister_adapter
 from .opencode_plugin.web import UsagePage
@@ -62,8 +62,8 @@ class OpenCodeCLIPlugin(Star):
     async def opencode_source(self, event: AstrMessageEvent):
         """Show the license and corresponding source for this bot plugin."""
         yield event.plain_result(
-            "astrbot_plugin_opencode v0.2.2 · AGPL-3.0\n"
-            "源码：https://github.com/drshenmiao-hash/astrbot_plugin_opencode/tree/main"
+            f"astrbot_plugin_opencode v{__version__} · AGPL-3.0\n"
+            f"源码：https://github.com/drshenmiao-hash/astrbot_plugin_opencode/tree/v{__version__}"
         )
 
     @filter.permission_type(filter.PermissionType.ADMIN)

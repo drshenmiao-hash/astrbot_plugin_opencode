@@ -37,13 +37,13 @@
     "description": "同时执行的请求数",
     "type": "int",
     "default": 2,
-    "hint": "同一会话始终串行；范围 1–8。"
+    "hint": "同一发送者的同一会话始终串行，范围 1–8。"
   },
   "queue_capacity": {
     "description": "等待队列容量",
     "type": "int",
     "default": 64,
-    "hint": "队列满时等待空位，达到排队时限才返回明确错误。"
+    "hint": "队列满时等待空位，停用插件会唤醒等待者。范围 1–1024。"
   },
   "queue_timeout_seconds": {
     "description": "排队超时秒数",
