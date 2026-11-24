@@ -320,9 +320,10 @@ class RegistrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_foreign_model_id_collision_never_overwrites(self):
         self.conf["provider"][0]["id"] = NATIVE_ID
         before = deepcopy(self.conf["provider"])
-        with self.assertLogs("astrbot", level="WARNING") as messages:
+        with self.assertRaises(OpenCodeError) as error:
             await runtime.initialize(self.context)
-        self.assertIn("其他提供商占用", "\n".join(messages.output))
+        self.assertEqual(error.exception.code, "model_id_conflict")
+        self.assertFalse(self.conf.saved)
         self.assertEqual(self.conf["provider"], before)
         self.assertEqual(self.opencode_models(), [])
         self.assertEqual(self.manager.reloads, [])

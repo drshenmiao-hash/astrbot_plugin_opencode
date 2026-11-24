@@ -129,6 +129,16 @@ class MarketAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved, [dict(config)])
         self.assertEqual(config["provider_settings"], {"fallback": ["backup"]})
 
+    async def test_invalid_settings_leave_dashboard_available_without_publishing_a_model(self):
+        bad = main.OpenCodeCLIPlugin(self.context, {"timeout_seconds": 0})
+        self.addAsyncCleanup(bad.terminate)
+        await bad.initialize()
+        runtime.initialize.assert_not_awaited()
+        report = await runtime.usage_dashboard(7)
+        self.assertFalse(report["validated"])
+        self.assertEqual(report["startup_error"]["code"], "config")
+        self.assertTrue(bad._usage_page.active)
+
     def test_schema_defaults_and_integer_types_match_runtime(self):
         schema = json.loads((ROOT / "_conf_schema.json").read_text())
         defaults = {field: spec["default"] for field, spec in schema.items()}

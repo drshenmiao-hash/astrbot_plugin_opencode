@@ -305,30 +305,37 @@ async def release_engine(engine):
     global _engine
     engine.references -= 1
     if engine.references == 0:
-        if not engine.closed:
-            await engine.close()
+        await engine.close()
         if _engine is engine:
             _engine = None
 
 
-async def stop_providers(context):
+async def stop_providers(context, *, detach=False):
     manager = getattr(context, "provider_manager", None)
-    providers = [
-        instance
-        for instance in getattr(manager, "inst_map", {}).values()
+    owned = {
+        key: instance
+        for key, instance in getattr(manager, "inst_map", {}).items()
         if getattr(instance, "_astrbot_opencode_plugin", False) is True
-    ]
+    }
     # Close shared engines before terminating adapters so pending callers see
     # a provider error and AstrBot can apply its usual fallback.
-    engines = {p.engine for p in providers if p.engine is not None and not p.engine.closed}
-    if _engine is not None and not _engine.closed:
+    engines = {p.engine for p in owned.values() if p.engine is not None}
+    if _engine is not None:
         engines.add(_engine)
     results = await asyncio.gather(*(engine.close() for engine in engines), return_exceptions=True)
-    results.extend(
-        await asyncio.gather(
-            *(provider.terminate() for provider in providers), return_exceptions=True
+    if detach:
+        for key, instance in owned.items():
+            if manager.inst_map.get(key) is not instance:
+                continue
+            if manager.curr_provider_inst is instance:
+                context._astrbot_opencode_selected_id = key
+            await manager.terminate_provider(key)
+    else:
+        results.extend(
+            await asyncio.gather(
+                *(provider.terminate() for provider in owned.values()), return_exceptions=True
+            )
         )
-    )
     for failure in results:
         if isinstance(failure, BaseException):
             raise failure
@@ -434,32 +441,28 @@ async def ensure_default_source_and_model(config):
             (m for m in models if owned(m) and m.get("model") == model_id), None
         )
         if target is None and any(m.get("id") == native_id for m in models):
-            logger.warning(
-                "OpenCode 原生模型 ID 已被其他提供商占用，未创建或覆盖模型；"
-                "请先处理 ID 冲突。不会自动改名或选模型。"
+            raise OpenCodeError("model_id_conflict")
+        if target is None:
+            target = {"id": native_id, "enable": source.get("enable", True)}
+            models.append(target)
+        elif target["id"] != native_id:
+            logger.info(
+                "OpenCode 已存在相同模型，沿用其原生 ID，不重复创建或重命名；"
+                "保留默认模型与备用模型引用。"
             )
-        else:
-            if target is None:
-                target = {"id": native_id, "enable": source.get("enable", True)}
-                models.append(target)
-            elif target["id"] != native_id:
-                logger.info(
-                    "OpenCode 已存在相同模型，沿用其原生 ID，不重复创建或重命名；"
-                    "保留默认模型与备用模型引用。"
-                )
-            target.update(
-                model=model_id,
-                provider_source_id=source["id"],
-                type=PROVIDER_TYPE,
-                provider_type="chat_completion",
-                key="",
-                api_base="",
-                modalities=["text", "image"],
-            )
-            target.setdefault("enable", True)
-            if target.get(_SUSPENDED) and source.get("enable", True):
-                target.pop(_SUSPENDED)
-                target["enable"] = True
+        target.update(
+            model=model_id,
+            provider_source_id=source["id"],
+            type=PROVIDER_TYPE,
+            provider_type="chat_completion",
+            key="",
+            api_base="",
+            modalities=["text", "image"],
+        )
+        target.setdefault("enable", True)
+        if target.get(_SUSPENDED) and source.get("enable", True):
+            target.pop(_SUSPENDED)
+            target["enable"] = True
 
     # Older versions left their generated entries enabled even when pinned to
     # a different model. Keep their IDs and settings so references still exist
@@ -507,6 +510,11 @@ async def _reload_host_models(context, target_id, *, stopped_only=False):
     instances = getattr(manager, "inst_map", {})
     selected = getattr(manager, "curr_provider_inst", None)
     selected_id = next((key for key, instance in instances.items() if instance is selected), None)
+    saved_selection = getattr(context, "_astrbot_opencode_selected_id", None)
+    if saved_selection is not None:
+        del context._astrbot_opencode_selected_id
+        if selected is None:
+            selected_id = saved_selection
     # On cold start AstrBot loads providers after plugin.initialize(). Its MCP
     # initialization task also distinguishes a running manager with zero models.
     running = bool(instances) or getattr(manager, "_mcp_init_task", None) is not None
@@ -523,6 +531,8 @@ async def _reload_host_models(context, target_id, *, stopped_only=False):
                 should_load = getattr(
                     instance, "_astrbot_opencode_plugin", False
                 ) is True and getattr(instance, "_closed", False)
+                if instance is None and running and model.get("enable"):
+                    should_load = model.get("model") == settings()["requested_model"]
             if not own_model or not should_load:
                 continue
             from .provider import OpenCodeCLIProvider

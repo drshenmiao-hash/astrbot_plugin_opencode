@@ -29,6 +29,12 @@ class Manager:
         self.inst_map = {"oauth-model": self.oauth}
         self.curr_provider_inst = self.oauth
 
+    async def terminate_provider(self, key):
+        old = self.inst_map.pop(key)
+        if self.curr_provider_inst is old:
+            self.curr_provider_inst = None
+        await old.terminate()
+
     async def reload(self, model):
         old = self.inst_map.pop(model["id"], None)
         if old:
@@ -137,6 +143,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(main.OpenCodeError) as error:
                 await chat
             self.assertEqual(error.exception.code, "closed")
+            self.assertNotIn(NATIVE_ID, self.manager.inst_map)
             self.assertIsNone(engine.client)
             self.assertEqual(engine.workers, [])
             self.assertIs(self.manager.inst_map["oauth-model"], self.manager.oauth)

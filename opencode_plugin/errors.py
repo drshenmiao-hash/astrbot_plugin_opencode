@@ -6,6 +6,7 @@ MESSAGES = {
     "usage_unavailable": "本地统计库暂不可用。",
     "auth_permissions": "请检查 OpenCode 专用 auth.json，文件必须可读且仅所有者可访问（0600）。",
     "registration_save_failed": "OpenCode 来源或模型配置未能保存，请检查 AstrBot 配置写入权限并重载插件。",
+    "model_id_conflict": "OpenCode 模型 ID 已被其他提供商占用，请处理 ID 冲突后重载。",
     "source_id_conflict": "opencode_cli 来源 ID 已被其他提供商占用；未覆盖已有配置，请处理冲突后重载。",
     "config": "OpenCode 配置无效，请检查插件配置。",
     "model": "请明确配置同一个 OpenCode 模型 ID；不支持 Auto 或默认路由。",
@@ -47,7 +48,7 @@ MESSAGES = {
     "cli_missing": "未找到官方 OpenCode CLI。",
     "sandbox_missing": "本地模式缺少 bubblewrap；未降级为无隔离执行。",
     "sandbox_unavailable": "本地文件隔离不可用，请检查内核或容器权限。",
-    "sandbox_path_conflict": "AstrBot 数据位于本地沙盒允许运行库路径中，请使用专用运行器。",
+    "sandbox_path_conflict": "请将 AstrBot 数据、插件和专用 auth.json 放在沙盒挂载的系统目录之外。",
 }
 
 

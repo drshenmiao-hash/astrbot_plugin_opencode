@@ -4,7 +4,7 @@ import asyncio
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star
 
 from .opencode_plugin import runtime
 from .opencode_plugin.errors import OpenCodeError
@@ -14,11 +14,15 @@ from .opencode_plugin.web import UsagePage
 __all__ = ["OpenCodeCLIPlugin", "OpenCodeCLIProvider"]
 
 
-@register("astrbot_plugin_opencode", "drshenmiao-hash", "OpenCode CLI 聊天 Provider", "0.2.2")
 class OpenCodeCLIPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
-        runtime.configure(config)
+        self._config_error = None
+        try:
+            runtime.configure(config)
+        except OpenCodeError as exc:
+            runtime.configure({})
+            self._config_error = exc.code
         self._usage_page = UsagePage()
         self._adapter_type = None
 
@@ -27,7 +31,9 @@ class OpenCodeCLIPlugin(Star):
         try:
             await runtime.open_usage(self.context)
             try:
-                await runtime.stop_providers(self.context)
+                await runtime.stop_providers(self.context, detach=bool(self._config_error))
+                if self._config_error:
+                    raise OpenCodeError(self._config_error)
                 await runtime.initialize(self.context)
             except OpenCodeError as exc:
                 runtime.record_startup_failure(exc.code)
@@ -39,15 +45,16 @@ class OpenCodeCLIPlugin(Star):
             raise
 
     async def terminate(self):
+        if self._adapter_type is None:
+            return
         self._usage_page.close()
-        if self._adapter_type is not None:
-            unregister_adapter(self._adapter_type)
-            self._adapter_type = None
+        unregister_adapter(self._adapter_type)
+        self._adapter_type = None
         try:
             await runtime.stop_validation()
         finally:
             try:
-                await runtime.stop_providers(self.context)
+                await runtime.stop_providers(self.context, detach=True)
             finally:
                 await runtime.close_usage(self.context)
 
