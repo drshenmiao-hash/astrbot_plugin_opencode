@@ -149,6 +149,7 @@ class ProviderStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_tools_and_results_never_become_chat_text(self):
         for args in (
             {"func_tool": object()},
+            {"tool_choice": {"type": "function", "function": {"name": "fixture"}}},
             {"tool_calls_result": {"name": "fixture"}},
             {"contexts": [{"role": "tool", "content": "fixture"}]},
         ):

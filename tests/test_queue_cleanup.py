@@ -98,5 +98,22 @@ class QueueCleanupTests(unittest.IsolatedAsyncioTestCase):
         finished = [
             call.kwargs for call in record.call_args_list if call.args == ("request_finished",)
         ]
-        self.assertCountEqual([entry["session"] for entry in finished], ["active", "queued", "waiting-for-capacity"])
+        self.assertCountEqual(
+            [entry["session"] for entry in finished], ["active", "queued", "waiting-for-capacity"]
+        )
         self.assertTrue(all(entry["code"] == "closed" for entry in finished))
+
+    async def test_blocked_cancel_write_closes_transport_after_grace_period(self):
+        blocked = asyncio.Event()
+
+        async def stuck_write(*_):
+            await blocked.wait()
+
+        self.client.notify = AsyncMock(side_effect=stuck_write)
+        self.first.cancel()
+        await asyncio.gather(self.first, return_exceptions=True)
+        async with asyncio.timeout(7):
+            while self.engine.active:
+                await asyncio.sleep(0.01)
+        self.client.close.assert_awaited_once()
+        self.assertFalse(self.engine.sessions)

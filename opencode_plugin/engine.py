@@ -62,6 +62,7 @@ class Engine:
         self.active = 0
         self.session_slots = 0
         self.closed = False
+        self._close_task = None
         self._condition = asyncio.Condition()
         self._start_lock = asyncio.Lock()
         self._jobs = {}
@@ -234,6 +235,8 @@ class Engine:
             if rotate:
                 while self.active:
                     await self._condition.wait()
+                if self.closed:
+                    raise OpenCodeError("closed")
                 await self._reset_client("catalog_refresh")
             if self.client is None:
                 await self._new_client()
@@ -507,7 +510,16 @@ class Engine:
         }
 
     async def close(self):
-        self.closed = True
+        if self._close_task is None:
+            self.closed = True
+            self._close_task = asyncio.create_task(self._shutdown())
+        try:
+            await asyncio.shield(self._close_task)
+        except asyncio.CancelledError:
+            await self._close_task
+            raise
+
+    async def _shutdown(self):
         await self.queue.close()
         jobs = list(self._jobs.values())
         for job in jobs:
@@ -521,4 +533,6 @@ class Engine:
         self.workers.clear()
         for job in jobs:
             self._account(job, "closed")
-        await self._reset_client("shutdown")
+        async with self._condition:
+            await self._reset_client("shutdown")
+            self._condition.notify_all()

@@ -234,7 +234,7 @@ class OpenCodeCLIProvider(Provider):
             )
             if audio_urls:
                 raise UnsupportedFeatureError("audio")
-            if has_tools or tool_calls_result or tool_choice == "required":
+            if has_tools or tool_calls_result or tool_choice not in (None, "auto", "none"):
                 raise UnsupportedFeatureError("tool_calls")
             image_input = None
             arguments = (prompt, contexts, system_prompt, extra_user_content_parts)

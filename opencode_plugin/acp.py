@@ -273,13 +273,18 @@ class ACPClient:
         failure = "process_exited"
         try:
             while True:
-                raw = await self.process.stdout.readline()
+                try:
+                    raw = await self.process.stdout.readline()
+                except ValueError:  # asyncio wraps LimitOverrunError for readline().
+                    raise OpenCodeError("output_limit") from None
                 if not raw:
                     break
                 if len(raw) > self.frame_limit:
                     raise OpenCodeError("output_limit")
                 message = json.loads(raw)
                 if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
+                    raise OpenCodeError("protocol")
+                if "id" in message and type(message["id"]) not in (int, str):
                     raise OpenCodeError("protocol")
                 method = message.get("method")
                 if method == "session/update":
@@ -293,6 +298,8 @@ class ACPClient:
                     future = self.pending.get(message["id"])
                     if future is None or future.done():
                         continue
+                    if ("error" in message) == ("result" in message):
+                        raise OpenCodeError("protocol")
                     if "error" in message:
                         error = message["error"]
                         # ACP -32000 means authentication required. Never expose

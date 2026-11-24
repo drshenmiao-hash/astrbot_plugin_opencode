@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 from opencode_plugin.acp import ACPClient
 from opencode_plugin.engine import Engine
 from opencode_plugin.errors import OpenCodeError, retry_stream_errors
-from opencode_plugin.launcher import CHAT_MODE, _copy_auth
+from opencode_plugin.launcher import CHAT_MODE, ProcessOwner, _copy_auth
 from opencode_plugin.settings import settings_from
 
 MODEL = "opencode/example"
@@ -183,7 +183,9 @@ class ACPTests(unittest.IsolatedAsyncioTestCase):
         self.peer.replies.extend([{"chunks": ["first"]}, {"error": missing}, {"chunks": ["next"]}])
         history = [{"role": "user", "content": "original"}]
         await self.submit(history)
-        history.extend([{"role": "assistant", "content": "first"}, {"role": "user", "content": "again"}])
+        history.extend(
+            [{"role": "assistant", "content": "first"}, {"role": "user", "content": "again"}]
+        )
         with self.assertRaises(OpenCodeError) as error:
             await self.submit(history)
         self.assertEqual(error.exception.code, "session_missing")
@@ -231,6 +233,42 @@ class ACPTests(unittest.IsolatedAsyncioTestCase):
             await self.submit(messages)
         self.assertEqual(error.exception.code, "chat_mode_required")
         self.assertEqual(self.peer.prompts, [])
+
+
+class CleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_concurrent_and_cancelled_close_reap_once(self):
+        owner = ProcessOwner(settings_from({}))
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def cleanup():
+            started.set()
+            await release.wait()
+
+        owner._close_process = AsyncMock(side_effect=cleanup)
+        first = asyncio.create_task(owner.close())
+        await started.wait()
+        second = asyncio.create_task(owner.close())
+        first.cancel()
+        await asyncio.sleep(0)
+        self.assertFalse(first.done())
+        release.set()
+        await second
+        with self.assertRaises(asyncio.CancelledError):
+            await first
+        owner._close_process.assert_awaited_once()
+
+    async def test_auth_and_astrbot_directories_must_be_outside_mounted_system_paths(self):
+        for field in ("auth_path", "protected_paths"):
+            cfg = settings_from({"model_id": MODEL, "cli_binary": "/usr/bin/true"})
+            cfg[field] = (
+                "/etc/ssl/certs/auth.json" if field == "auth_path" else ["/usr/lib/astrbot"]
+            )
+            owner = ProcessOwner(cfg)
+            with self.assertRaises(OpenCodeError) as error:
+                await owner.start()
+            self.assertEqual(error.exception.code, "sandbox_path_conflict")
+            self.assertIsNone(owner.scratch)
+            self.assertIsNone(owner.process)
 
 
 class AuthTests(unittest.TestCase):
