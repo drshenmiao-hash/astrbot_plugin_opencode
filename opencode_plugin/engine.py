@@ -3,6 +3,7 @@
 import asyncio
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .acp import ACPClient
@@ -41,6 +42,7 @@ class Job:
     model_id: str | None = None
     tokens: TurnTokens | None = None
     images: dict | None = None
+    on_chunk: Callable[[str], None] | None = None
     sent_image_blocks: int = 0
     sent_image_base64_bytes: int = 0
     historical_images_not_attached: int = 0
@@ -85,6 +87,7 @@ class Engine:
         stats_session=None,
         result_stats=None,
         images=None,
+        on_chunk=None,
     ):
         await self._start_workers()
         now = time.monotonic()
@@ -103,6 +106,7 @@ class Engine:
         job.sequence = sequence if type(sequence) is int else None
         job.stats_session = stats_session
         job.images = images
+        job.on_chunk = on_chunk
         self._jobs[job.request_id] = job
 
         async def queue_notice():
@@ -335,7 +339,11 @@ class Engine:
         stats = {}
         turn = asyncio.create_task(
             client.prompt(
-                session_id, text, stats=stats, **({"images": image_blocks} if image_blocks else {})
+                session_id,
+                text,
+                stats=stats,
+                **({"images": image_blocks} if image_blocks else {}),
+                **({"on_chunk": job.on_chunk} if job.on_chunk is not None else {}),
             )
         )
         try:

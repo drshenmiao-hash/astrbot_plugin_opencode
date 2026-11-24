@@ -4,9 +4,11 @@
 
 import asyncio
 import hashlib
+import json
 import secrets
 import time
 import uuid
+from io import StringIO
 
 from astrbot.api.event import MessageChain
 from astrbot.api.provider import LLMResponse, Provider
@@ -22,6 +24,7 @@ from .errors import (
     ImageLimitError,
     ImageUnsupportedError,
     OpenCodeError,
+    OpenCodeStreamError,
     UnsupportedFeatureError,
     retry_stream_errors,
 )
@@ -108,6 +111,8 @@ class OpenCodeCLIProvider(Provider):
         extra_user_content_parts=None,
         tool_choice="auto",
         request_max_retries=None,
+        *,
+        _on_chunk=None,
         **kwargs,
     ):
         event = None
@@ -135,6 +140,7 @@ class OpenCodeCLIProvider(Provider):
                 request_sequence=kwargs.get("request_sequence"),
                 request_max_retries=request_max_retries,
                 event=event,
+                on_chunk=_on_chunk,
             )
         except asyncio.CancelledError:
             raise
@@ -193,6 +199,7 @@ class OpenCodeCLIProvider(Provider):
         request_sequence,
         request_max_retries=None,
         event=None,
+        on_chunk=None,
     ):
         started = time.monotonic()
         origin = getattr(event, "unified_msg_origin", "") if event is not None else ""
@@ -206,7 +213,14 @@ class OpenCodeCLIProvider(Provider):
         scope = None
         stats_session = None
         if isinstance(stable, str) and stable:
-            raw = f"{self.provider_config.get('id', '')}\0{origin}\0{stable}"
+            sender = (
+                event.get_sender_id() if callable(getattr(event, "get_sender_id", None)) else ""
+            )
+            raw = json.dumps(
+                [self.provider_config.get("id", ""), origin, sender, session_id, conversation_id],
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
             scope = hashlib.blake2s(raw.encode(), key=_SESSION_SALT, digest_size=16).hexdigest()
             stats_session = runtime.usage_session(raw)
 
@@ -265,6 +279,13 @@ class OpenCodeCLIProvider(Provider):
 
         result_stats = {}
 
+        streamed = False
+
+        def forward(text):
+            nonlocal streamed
+            streamed = True
+            on_chunk(text)
+
         async def attempt():
             task = asyncio.create_task(
                 self.engine.submit(
@@ -275,11 +296,16 @@ class OpenCodeCLIProvider(Provider):
                     stats_session=stats_session,
                     result_stats=result_stats,
                     images=image_input.blocks if image_input is not None else None,
+                    on_chunk=forward if on_chunk is not None else None,
                 )
             )
             self._pending.add(task)
             try:
                 return await task
+            except OpenCodeStreamError as exc:
+                if streamed:
+                    raise OpenCodeError(exc.code) from None
+                raise
             except asyncio.CancelledError:
                 if self._closed and not asyncio.current_task().cancelling():
                     raise OpenCodeError("closed") from None
@@ -299,8 +325,31 @@ class OpenCodeCLIProvider(Provider):
         return LLMResponse(role="assistant", completion_text=text, usage=usage)
 
     async def text_chat_stream(self, *args, **kwargs):
-        # AstrBot may request streaming. Emit one final response, never fake deltas.
-        yield await self.text_chat(*args, **kwargs)
+        # Coalesce deltas for a slow consumer without blocking other ACP sessions.
+        pending = StringIO()
+        changed = asyncio.Event()
+
+        def append(text):
+            pending.write(text)
+            changed.set()
+
+        task = asyncio.create_task(self.text_chat(*args, _on_chunk=append, **kwargs))
+        task.add_done_callback(lambda _: changed.set())
+        try:
+            while True:
+                await changed.wait()
+                changed.clear()
+                if pending.tell():
+                    delta = pending.getvalue()
+                    pending.seek(0)
+                    pending.truncate()
+                    yield LLMResponse(role="assistant", completion_text=delta, is_chunk=True)
+                if task.done() and not pending.tell():
+                    break
+            yield task.result()
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
     async def terminate(self):
         if self._closed:

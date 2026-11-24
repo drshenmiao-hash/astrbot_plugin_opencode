@@ -155,7 +155,7 @@ class ACPClient:
         self.session_models[session_id] = model
         return session_id
 
-    async def prompt(self, session_id, text, *, stats=None, images=()):
+    async def prompt(self, session_id, text, *, stats=None, images=(), on_chunk=None):
         if images:
             capabilities = (self.initialized or {}).get("agentCapabilities")
             supported = (
@@ -163,7 +163,7 @@ class ACPClient:
             )
             if not isinstance(supported, dict) or supported.get("image") is not True:
                 raise OpenCodeError("image_unsupported")
-        state = {"text": StringIO(), "size": 0, "error": None}
+        state = {"text": StringIO(), "size": 0, "error": None, "on_chunk": on_chunk}
         self.turns[session_id] = state
         try:
             result = await self.call(
@@ -254,6 +254,8 @@ class ACPClient:
                 return not state.get("cancel_sent", False)
             if text:
                 state["text"].write(text)
+                if state["on_chunk"] is not None:
+                    state["on_chunk"](text)
         elif kind == "current_mode_update" and update.get("currentModeId") != CHAT_MODE:
             state["error"] = "chat_mode_required"
         elif kind == "config_option_update":
@@ -301,7 +303,8 @@ class ACPClient:
                             error.get("code") == -32602
                             and isinstance(error.get("data"), dict)
                             and isinstance(error["data"].get("sessionId"), str)
-                            and error.get("message") == f"session not found: {error['data']['sessionId']}"
+                            and error.get("message")
+                            == f"session not found: {error['data']['sessionId']}"
                         ):
                             code = "session_missing"
                         else:
