@@ -99,6 +99,7 @@ class DashboardQueries(unittest.TestCase):
         no_tokens_yet = migrated.dashboard(7)
         self.assertEqual(no_tokens_yet["totals"]["requests"], 1)
         self.assertIsNone(no_tokens_yet["totals"]["token_total"])
+        self.assertEqual(no_tokens_yet["token_groups"], {"model": [], "session": [], "code": []})
         migrated.record(
             event("success", token_total=13, token_input=10, token_output=3, token_cached=5)
         )
@@ -119,6 +120,77 @@ class DashboardQueries(unittest.TestCase):
         self.assertEqual(report["totals"]["token_cached"], 5)
         self.assertEqual(report["trend"][-1]["token_total"], 13)
         self.assertEqual([row["token_total"] for row in report["groups"]["model"]], [13, 0])
+        self.assertEqual([row["token_total"] for row in report["token_groups"]["model"]], [13, 0])
+
+    def test_token_leaders_include_low_volume_groups_and_use_full_period_totals(self):
+        now = datetime.now(timezone.utc)
+        for i in range(24):
+            for j in range(2):
+                self.store.record(
+                    event(
+                        f"{i}-{j}",
+                        model_id=f"busy/{i:02}",
+                        session=f"anon-{i:02}",
+                        token_total=1,
+                        token_input=1,
+                        token_output=0,
+                        token_cached=0,
+                    ),
+                    at=now,
+                )
+        self.store.record(event("unknown", model_id="busy/00", session="anon-00"), at=now)
+        self.store.record(
+            event(
+                "large",
+                model_id="rare/large",
+                session="rare-session",
+                code="timeout",
+                token_total=1000,
+                token_input=600,
+                token_output=400,
+                token_cached=50,
+            ),
+            at=now,
+        )
+        self.store.record(
+            event(
+                "older",
+                model_id="older/large",
+                token_total=3000,
+                token_input=2000,
+                token_output=1000,
+                token_cached=40,
+            ),
+            at=now - timedelta(days=10),
+        )
+        report = self.store.dashboard(7)
+        self.assertNotIn("rare/large", [r["label"] for r in report["groups"]["model"]])
+        leaders = report["token_groups"]
+        self.assertEqual(len(leaders["model"]), 20)
+        self.assertEqual(
+            leaders["model"][0],
+            {
+                "label": "rare/large",
+                "requests": 1,
+                "token_attempts": 1,
+                "token_total": 1000,
+                "token_input": 600,
+                "token_output": 400,
+                "token_cached": 50,
+            },
+        )
+        self.assertEqual(
+            [r["label"] for r in leaders["model"][1:]], [f"busy/{i:02}" for i in range(19)]
+        )
+        self.assertEqual(
+            (leaders["model"][1]["token_attempts"], leaders["model"][1]["requests"]), (2, 3)
+        )
+        self.assertEqual(leaders["session"][0]["label"], "rare-session")
+        self.assertEqual(leaders["code"][0]["label"], "timeout")
+        self.assertEqual(report["totals"]["token_total"], 1048)
+        self.assertEqual(
+            self.store.dashboard(30)["token_groups"]["model"][0]["label"], "older/large"
+        )
 
     def test_group_output_is_bounded_and_excludes_sensitive_fields(self):
         for i in range(25):

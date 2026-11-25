@@ -25,12 +25,13 @@ _NUMBERS = (
 )
 _GROUPS = {"total": "'total'", "session": "session", "day": "day", "model": "model_id"}
 DASHBOARD_RANGES = (7, 30, 90)
+_TOKEN_SUMS = ", ".join(f"SUM({name}) AS {name}" for name in TOKEN_FIELDS)
 _TOTALS = f"""
     COUNT(*) AS requests,
     COALESCE(SUM(code = 'ok'), 0) AS success,
     COALESCE(SUM(code != 'ok'), 0) AS failed,
     {", ".join(f"COALESCE(SUM({name}), 0) AS {name}" for name in _NUMBERS)},
-    {", ".join(f"SUM({name}) AS {name}" for name in TOKEN_FIELDS)},
+    {_TOKEN_SUMS},
     COUNT(token_total) AS token_attempts,
     COALESCE(SUM(process_reused), 0) AS process_reused,
     COALESCE(SUM(reused), 0) AS reused
@@ -206,6 +207,7 @@ class UsageStore:
             )
             trend = {row["label"]: dict(row) for row in day_rows}
             groups = {}
+            token_groups = {}
             for key, column in (("model", "model_id"), ("session", "session"), ("code", "code")):
                 groups[key] = [
                     dict(row)
@@ -215,6 +217,20 @@ class UsageStore:
                         date_filter,
                     )
                 ]
+                token_groups[key] = []
+                if total["token_attempts"]:
+                    # Rank the entire period before limiting. A low-volume model
+                    # may lead on tokens but be absent from the request leaders.
+                    token_groups[key] = [
+                        dict(row)
+                        for row in db.execute(
+                            f"""SELECT {column} AS label, COUNT(*) AS requests,
+                                COUNT(token_total) AS token_attempts, {_TOKEN_SUMS}
+                                {where} GROUP BY {column} HAVING COUNT(token_total) > 0
+                                ORDER BY SUM(token_total) DESC, label LIMIT 20""",
+                            date_filter,
+                        )
+                    ]
         labels = [(start + timedelta(days=offset)).isoformat() for offset in range(days)]
         return {
             "notice": DISCLAIMER,
@@ -238,6 +254,7 @@ class UsageStore:
                 for label in labels
             ],
             "groups": groups,
+            "token_groups": token_groups,
             "write_failures": self.write_failures,
         }
 
