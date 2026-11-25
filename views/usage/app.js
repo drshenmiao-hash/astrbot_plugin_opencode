@@ -40,6 +40,14 @@ function bytes(value) {
   return `${count(value / 1024 ** 2)} MiB`;
 }
 
+function percent(part, total) {
+  if (!total) return "—";
+  const value = part / total * 100;
+  if (part > 0 && value < 0.1) return "<0.1%";
+  if (part < total && value > 99.9) return ">99.9%";
+  return count(value) + "%";
+}
+
 function resultLabel(code) {
   return codes[code] || code || "—";
 }
@@ -90,7 +98,7 @@ function renderGroups() {
       fill.style.width = share + "%";
       track.append(fill);
       item.append(name, element("span", "rank-count", count(row.requests) + " 次"),
-        track, element("span", "rank-share", count(share) + "%"));
+        track, element("span", "rank-share", percent(row.requests, current.totals.requests)));
       ranks.append(item);
     }
     return [label, count(row.requests), count(row.failed), count(row.reused), tokenCount(row.token_total)];
@@ -204,7 +212,7 @@ function render(data) {
   write("token-cached", tokenCount(stats.token_cached));
   write("requests", count(stats.requests));
   write("failed", `失败 ${count(stats.failed)} 次`);
-  write("success", stats.requests ? `${count(stats.success / stats.requests * 100)}%` : "—");
+  write("success", percent(stats.success, stats.requests));
   write("success-count", `成功 ${count(stats.success)} 次`);
   write("duration", stats.requests ? `${count(stats.duration_ms / stats.requests)} ms` : "—");
   write("queue-time", stats.requests ? `平均排队 ${count(stats.queue_ms / stats.requests)} ms` : "平均排队 —");
@@ -228,10 +236,24 @@ function render(data) {
   }
 }
 
+async function waitForBridge(promise) {
+  let timer;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("管理面板响应超时，请刷新重试。")), 15000);
+    });
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function refresh() {
   const button = byId("refresh");
   const range = byId("range");
+  const days = Number(range.value);
   button.disabled = range.disabled = true;
+  if (current?.trend?.length !== days) byId("dashboard").hidden = true;
   alert("");
   byId("status").hidden = false;
   write("status", "正在读取本地统计…");
@@ -240,8 +262,8 @@ async function refresh() {
     if (!bridge || window.parent === window) {
       throw new Error("请从 AstrBot 插件管理页打开此页面。");
     }
-    await bridge.ready();
-    const data = await bridge.apiPost("usage/dashboard", { days: Number(range.value) });
+    await waitForBridge(bridge.ready());
+    const data = await waitForBridge(bridge.apiPost("usage/dashboard", { days }));
     if (!data?.totals) throw new Error("无法读取统计，请刷新重试。");
     render(data);
     const total = data.totals.requests;
