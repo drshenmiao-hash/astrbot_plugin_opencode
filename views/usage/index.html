@@ -42,6 +42,63 @@
           <div><dt>最近失败</dt><dd id="last-failure">—</dd></div>
         </dl>
       </section>
+      <section class="metrics" aria-label="用量概览">
+        <div class="metric"><span>总请求</span><strong id="requests">0</strong><small id="failed">失败 0 次</small></div>
+        <div class="metric"><span>成功率</span><strong id="success">—</strong><small id="success-count">成功 0 次</small></div>
+        <div class="metric"><span>平均耗时</span><strong id="duration">—</strong><small id="queue-time">平均排队 —</small></div>
+        <div class="metric"><span>发送 / 回复</span><strong id="bytes">—</strong><small id="reuse">会话复用 0 次</small></div>
+      </section>
+      <div class="panels">
+        <section class="panel trend-panel" aria-labelledby="trend-title">
+          <div class="heading">
+            <div><h2 id="trend-title">每日趋势</h2><p id="interval"></p></div>
+            <select id="metric" aria-label="趋势指标">
+              <option value="requests">请求次数</option>
+              <option value="tokens">Token 用量</option>
+              <option value="duration">平均耗时</option>
+            </select>
+          </div>
+          <p id="chart-empty" class="chart-empty" hidden></p>
+          <div id="trend-content">
+            <div class="plot-wrap">
+              <div class="scale" aria-hidden="true"><span id="scale-top"></span><span>0</span></div>
+              <div class="plot">
+                <div id="chart" class="chart" aria-hidden="true"></div>
+                <input id="day-picker" class="day-picker" type="range" min="0" step="1" aria-label="选择趋势日期">
+              </div>
+            </div>
+            <div class="axis" aria-hidden="true"><span id="axis-start"></span><span id="axis-end"></span></div>
+            <div class="legend" id="legend"></div>
+            <div class="day-detail">
+              <time id="selected-date"></time>
+              <span id="selected-values"></span>
+            </div>
+          </div>
+          <details>
+            <summary>查看每日数据</summary>
+            <div class="scroll">
+              <table aria-label="每日请求"><thead><tr><th scope="col">日期</th><th scope="col">请求</th><th scope="col">失败</th><th scope="col">Token</th><th scope="col">平均耗时</th></tr></thead><tbody id="daily"></tbody></table>
+            </div>
+          </details>
+        </section>
+        <section class="panel groups-panel" aria-labelledby="groups-title">
+          <div class="heading">
+            <div><h2 id="groups-title">请求分布</h2><p>请求量前 5 项，占比按时段内全部请求计算</p></div>
+            <select id="dimension" aria-label="统计维度">
+              <option value="model">按模型</option>
+              <option value="session">按匿名会话</option>
+              <option value="code">按结果</option>
+            </select>
+          </div>
+          <ol id="ranking" class="ranking" aria-label="请求量排名"></ol>
+          <p id="groups-empty" class="chart-empty" hidden>该时段暂无请求</p>
+          <details><summary>查看分组明细（最多 20 项）</summary>
+          <div class="scroll">
+            <table aria-label="分组用量"><thead><tr><th scope="col" id="dimension-title">模型</th><th scope="col">请求</th><th scope="col">失败</th><th scope="col">会话复用</th><th scope="col">Token</th></tr></thead><tbody id="groups"></tbody></table>
+          </div>
+          </details>
+        </section>
+      </div>
       <section class="runtime tokens" aria-labelledby="token-title">
         <div class="runtime-heading"><h2 id="token-title">Token 用量</h2><span id="token-attempts"></span></div>
         <dl>
@@ -51,12 +108,6 @@
           <div><dt>缓存命中（计入输入）</dt><dd id="token-cached">—</dd></div>
         </dl>
       </section>
-      <section class="metrics" aria-label="用量概览">
-        <div class="metric"><span>总请求</span><strong id="requests">0</strong><small id="failed">失败 0 次</small></div>
-        <div class="metric"><span>成功率</span><strong id="success">—</strong><small id="success-count">成功 0 次</small></div>
-        <div class="metric"><span>平均耗时</span><strong id="duration">—</strong><small id="queue-time">平均排队 —</small></div>
-        <div class="metric"><span>发送 / 回复</span><strong id="bytes">—</strong><small id="reuse">会话复用 0 次</small></div>
-      </section>
       <details class="runtime traffic">
         <summary>查看流量与进程复用</summary>
         <dl>
@@ -65,35 +116,6 @@
           <div><dt>CLI 进程复用次数</dt><dd id="process-reused">—</dd></div>
         </dl>
       </details>
-      <div class="panels">
-        <section class="panel trend-panel" aria-labelledby="trend-title">
-          <div class="heading">
-            <div><h2 id="trend-title">请求趋势</h2><p id="interval"></p></div>
-            <div class="legend"><span class="swatch"></span>成功 <span class="swatch fail"></span>失败</div>
-          </div>
-          <div id="chart" class="chart" aria-hidden="true"></div>
-          <div class="axis" aria-hidden="true"><span id="axis-start"></span><span id="axis-end"></span></div>
-          <details>
-            <summary>查看每日数据</summary>
-            <div class="scroll">
-              <table aria-label="每日请求"><thead><tr><th scope="col">日期</th><th scope="col">请求</th><th scope="col">失败</th><th scope="col">Token</th></tr></thead><tbody id="daily"></tbody></table>
-            </div>
-          </details>
-        </section>
-        <section class="panel groups-panel" aria-labelledby="groups-title">
-          <div class="heading">
-            <div><h2 id="groups-title">请求明细</h2><p>按次数排序，最多显示 20 项</p></div>
-            <select id="dimension" aria-label="统计维度">
-              <option value="model">按模型</option>
-              <option value="session">按匿名会话</option>
-              <option value="code">按结果</option>
-            </select>
-          </div>
-          <div class="scroll">
-            <table aria-label="分组用量"><thead><tr><th scope="col" id="dimension-title">模型</th><th scope="col">请求</th><th scope="col">失败</th><th scope="col">会话复用</th><th scope="col">Token</th></tr></thead><tbody id="groups"></tbody></table>
-          </div>
-        </section>
-      </div>
     </div>
   </main>
 </body>

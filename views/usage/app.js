@@ -64,36 +64,124 @@ function table(id, rows, columns) {
   }
 }
 
+function element(tag, className, text) {
+  const node = document.createElement(tag);
+  node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
 function renderGroups() {
   if (!current) return;
   const dimension = byId("dimension").value;
   write("dimension-title", dimensions[dimension]);
-  const rows = current.groups[dimension].map((row) => {
-    let label = row.label;
-    if (dimension === "code") label = resultLabel(label);
+  const groups = current.groups[dimension];
+  const ranks = document.createDocumentFragment();
+  const rows = groups.map((row, index) => {
+    let label = dimension === "code" ? resultLabel(row.label) : row.label;
     if (!label) label = dimension === "session" ? "未识别会话" : "未记录 ACP 发送";
+    if (index < 5) {
+      const share = row.requests / current.totals.requests * 100;
+      const item = element("li", "rank");
+      const name = element("span", "rank-name", label);
+      name.title = label;
+      const track = element("div", "rank-track");
+      const fill = element("div", "rank-fill");
+      fill.style.width = share + "%";
+      track.append(fill);
+      item.append(name, element("span", "rank-count", count(row.requests) + " 次"),
+        track, element("span", "rank-share", count(share) + "%"));
+      ranks.append(item);
+    }
     return [label, count(row.requests), count(row.failed), count(row.reused), tokenCount(row.token_total)];
   });
+  byId("ranking").replaceChildren(ranks);
+  byId("groups-empty").hidden = groups.length > 0;
   table("groups", rows, 5);
 }
 
-function renderTrend(days) {
-  const max = Math.max(1, ...days.map((day) => day.requests));
+const trends = {
+  requests: {
+    series: [["success", "成功"], ["fail", "失败"]],
+    values: day => [day.requests - day.failed, day.failed],
+    detail: day => `成功 ${count(day.requests - day.failed)} 次 · 失败 ${count(day.failed)} 次`,
+  },
+  tokens: {
+    series: [["tokens-bar", "已记录 Token"]],
+    values: day => [day.token_total],
+    detail: day => day.token_total == null ? "未记录 Token"
+      : `${count(day.token_total)} Token · 已记录 ${count(day.token_attempts)} / ${count(day.requests)} 次请求`,
+  },
+  duration: {
+    series: [["duration-bar", "平均耗时"]],
+    values: day => [day.duration_avg_ms],
+    detail: day => `平均耗时 ${count(day.duration_avg_ms)} ms · 平均排队 ${count(day.queue_avg_ms)} ms`,
+  },
+};
+
+function selectDay() {
+  const picker = byId("day-picker");
+  const day = current.trend[picker.valueAsNumber];
+  const text = day.requests ? trends[byId("metric").value].detail(day) : "当日无请求";
+  const chart = byId("chart");
+  chart.querySelector(".selected")?.classList.remove("selected");
+  chart.children[picker.valueAsNumber].classList.add("selected");
+  write("selected-date", day.label);
+  byId("selected-date").dateTime = day.label;
+  write("selected-values", text);
+  picker.setAttribute("aria-valuetext", day.label + " · " + text);
+}
+
+function renderTrend() {
+  if (!current) return;
+  const days = current.trend;
+  const metric = byId("metric").value;
+  const trend = trends[metric];
+  const hasData = metric === "tokens" ? current.totals.token_attempts > 0 : current.totals.requests > 0;
+  byId("chart-empty").hidden = hasData;
+  byId("trend-content").hidden = !hasData;
+  if (!hasData) {
+    write("chart-empty", current.totals.requests ? "该时段的请求没有 Token 计数" : "该时段暂无请求");
+    return;
+  }
+  const values = days.map(trend.values);
+  const peak = Math.max(1, ...values.map(parts => parts.reduce((total, part) => total + (part ?? 0), 0)));
+  const magnitude = 10 ** Math.floor(Math.log10(peak));
+  const ceiling = Math.ceil(peak / magnitude) * magnitude;
+  write("scale-top", count(ceiling));
   const bars = document.createDocumentFragment();
-  for (const day of days) {
-    const bar = document.createElement("div");
-    bar.className = "bar";
-    bar.title = `${day.label} · ${count(day.requests)} 次 · ${count(day.failed)} 次失败`;
-    for (const [quantity, style] of [[day.requests - day.failed, ""], [day.failed, "fail"]]) {
-      const segment = document.createElement("span");
-      segment.className = style;
-      segment.style.height = `${quantity / max * 100}%`;
-      bar.append(segment);
+  let hasMissing = false;
+  days.forEach((day, index) => {
+    const bar = element("div", "bar");
+    const parts = values[index];
+    if (day.requests && parts[0] == null) {
+      hasMissing = true;
+      bar.classList.add("missing");
+    } else if (day.requests && parts.every(n => n === 0)) {
+      bar.classList.add("recorded-zero", trend.series[0][0]);
+    } else {
+      parts.forEach((value, i) => {
+        if (!value) return;
+        const segment = element("span", trend.series[i][0]);
+        segment.style.height = (value / ceiling * 100) + "%";
+        bar.append(segment);
+      });
     }
     bars.append(bar);
-  }
+  });
   byId("chart").replaceChildren(bars);
-  table("daily", days.map((day) => [day.label, count(day.requests), count(day.failed), tokenCount(day.token_total)]), 4);
+  const legend = hasMissing ? [...trend.series, ["missing-key", "未记录"]] : trend.series;
+  byId("legend").replaceChildren(...legend.map(([style, label]) => {
+    const key = element("span", "legend-item");
+    key.append(element("i", "swatch " + style), label);
+    return key;
+  }));
+  const picker = byId("day-picker");
+  picker.max = days.length - 1;
+  picker.style.setProperty("--day-width", 100 / days.length + "%");
+  const previous = days.findIndex(day => day.label === byId("selected-date").dateTime);
+  picker.value = previous >= 0 ? previous : days.findLastIndex(day => day.requests);
+  selectDay();
 }
 
 function render(data) {
@@ -128,7 +216,11 @@ function render(data) {
   write("interval", `${data.start} 至 ${data.end}`);
   write("axis-start", data.start.slice(5));
   write("axis-end", data.end.slice(5));
-  renderTrend(data.trend);
+  table("daily", data.trend.map(day => [
+    day.label, count(day.requests), count(day.failed), tokenCount(day.token_total),
+    day.duration_avg_ms == null ? "—" : count(day.duration_avg_ms) + " ms",
+  ]), 5);
+  renderTrend();
   renderGroups();
   byId("dashboard").hidden = false;
   if (data.write_failures) {
@@ -167,5 +259,7 @@ async function refresh() {
 
 byId("refresh").addEventListener("click", refresh);
 byId("range").addEventListener("change", refresh);
+byId("metric").addEventListener("change", renderTrend);
+byId("day-picker").addEventListener("input", selectDay);
 byId("dimension").addEventListener("change", renderGroups);
 refresh();
