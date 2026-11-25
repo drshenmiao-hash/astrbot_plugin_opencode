@@ -57,13 +57,13 @@ function alert(message) {
   byId("error").hidden = !message;
 }
 
-function table(id, rows, columns) {
+function table(id, rows, columns, emptyMessage = "该时段暂无请求") {
   const body = byId(id);
   body.replaceChildren();
   if (!rows.length) {
     const cell = body.insertRow().insertCell();
     cell.colSpan = columns;
-    cell.textContent = "该时段暂无请求";
+    cell.textContent = emptyMessage;
     return;
   }
   for (const values of rows) {
@@ -82,14 +82,36 @@ function element(tag, className, text) {
 function renderGroups() {
   if (!current) return;
   const dimension = byId("dimension").value;
-  write("dimension-title", dimensions[dimension]);
-  const groups = current.groups[dimension];
+  const metric = byId("rank-metric").querySelector("input:checked").value;
+  const tokens = metric === "tokens";
+  const { totals } = current;
+  const groups = (tokens ? current.token_groups : current.groups)[dimension];
+  const total = tokens ? totals.token_total : totals.requests;
+  const measure = tokens ? "token_total" : "requests";
+  const unit = tokens ? " Token" : " 次";
+  const headers = tokens
+    ? [dimensions[dimension], "总 Token", "输入", "输出", "缓存命中", "已计数 / 请求"]
+    : [dimensions[dimension], "请求", "失败", "会话复用", "Token"];
+  byId("group-columns").replaceChildren(...headers.map(label => {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = label;
+    return th;
+  }));
+  const basis = tokens
+    ? `占时段内已记录 Token 的比例 · ${count(totals.token_attempts)} / ${count(totals.requests)} 次请求有计数`
+    : "占时段内全部请求的比例";
+  write("rank-basis", "前 5 项 · " + basis);
+  const empty = tokens && totals.requests ? "该时段的请求没有 Token 计数" : "该时段暂无请求";
+  const ranking = byId("ranking");
+  ranking.dataset.metric = metric;
   const ranks = document.createDocumentFragment();
   const rows = groups.map((row, index) => {
     let label = dimension === "code" ? resultLabel(row.label) : row.label;
     if (!label) label = dimension === "session" ? "未识别会话" : "未记录 ACP 发送";
     if (index < 5) {
-      const share = row.requests / current.totals.requests * 100;
+      const value = row[measure];
+      const share = total ? value / total * 100 : 0;
       const item = element("li", "rank");
       const name = element("span", "rank-name", label);
       name.title = label;
@@ -97,15 +119,20 @@ function renderGroups() {
       const fill = element("div", "rank-fill");
       fill.style.width = share + "%";
       track.append(fill);
-      item.append(name, element("span", "rank-count", count(row.requests) + " 次"),
-        track, element("span", "rank-share", percent(row.requests, current.totals.requests)));
+      item.append(name, element("span", "rank-count", count(value) + unit),
+        track, element("span", "rank-share", percent(value, total)));
       ranks.append(item);
+    }
+    if (tokens) {
+      return [label, tokenCount(row.token_total), tokenCount(row.token_input), tokenCount(row.token_output),
+        tokenCount(row.token_cached), count(row.token_attempts) + " / " + count(row.requests)];
     }
     return [label, count(row.requests), count(row.failed), count(row.reused), tokenCount(row.token_total)];
   });
-  byId("ranking").replaceChildren(ranks);
+  ranking.replaceChildren(ranks);
+  write("groups-empty", empty);
   byId("groups-empty").hidden = groups.length > 0;
-  table("groups", rows, 5);
+  table("groups", rows, headers.length, empty);
 }
 
 const trends = {
@@ -283,5 +310,6 @@ byId("refresh").addEventListener("click", refresh);
 byId("range").addEventListener("change", refresh);
 byId("metric").addEventListener("change", renderTrend);
 byId("day-picker").addEventListener("input", selectDay);
+byId("rank-metric").addEventListener("change", renderGroups);
 byId("dimension").addEventListener("change", renderGroups);
 refresh();

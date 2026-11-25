@@ -83,19 +83,25 @@
         </section>
         <section class="panel groups-panel" aria-labelledby="groups-title">
           <div class="heading">
-            <div><h2 id="groups-title">请求分布</h2><p>请求量前 5 项，占比按时段内全部请求计算</p></div>
+            <h2 id="groups-title">用量排行</h2>
             <select id="dimension" aria-label="统计维度">
               <option value="model">按模型</option>
               <option value="session">按匿名会话</option>
               <option value="code">按结果</option>
             </select>
           </div>
-          <ol id="ranking" class="ranking" aria-label="请求量排名"></ol>
-          <p id="groups-empty" class="chart-empty" hidden>该时段暂无请求</p>
-          <details><summary>查看分组明细（最多 20 项）</summary>
-          <div class="scroll">
-            <table aria-label="分组用量"><thead><tr><th scope="col" id="dimension-title">模型</th><th scope="col">请求</th><th scope="col">失败</th><th scope="col">会话复用</th><th scope="col">Token</th></tr></thead><tbody id="groups"></tbody></table>
+          <div id="rank-metric" class="rank-switch" role="radiogroup" aria-label="排行指标">
+            <label><input type="radio" name="ranking" value="requests" checked><span>请求次数</span></label>
+            <label><input type="radio" name="ranking" value="tokens"><span>Token 消耗</span></label>
           </div>
+          <p id="rank-basis" class="rank-basis"></p>
+          <ol id="ranking" class="ranking" aria-label="前五名"></ol>
+          <p id="groups-empty" class="chart-empty" hidden>该时段暂无请求</p>
+          <details>
+            <summary>查看分组明细（最多 20 项）</summary>
+            <div class="scroll">
+              <table aria-label="分组用量"><thead><tr id="group-columns"></tr></thead><tbody id="groups"></tbody></table>
+            </div>
           </details>
         </section>
       </div>

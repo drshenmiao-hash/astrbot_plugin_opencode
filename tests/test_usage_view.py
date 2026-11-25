@@ -113,6 +113,92 @@ class UsageViewTests(unittest.TestCase):
         expect(view.locator("#selected-values")).to_have_text("当日无请求")
         self.assertTrue(view.locator("html").evaluate("e => e.scrollWidth <= e.clientWidth"))
 
+    def test_token_ranking_handles_coverage_denominators_and_dimension_switches(self):
+        from playwright.sync_api import expect
+
+        today = datetime.now(timezone.utc)
+        page, view = self.page, self.view
+        page.goto("http://usage.test/")
+        view.get_by_role("radio", name="请求次数").focus()
+        view.get_by_role("radio", name="请求次数").press("ArrowRight")
+        expect(view.get_by_role("radio", name="Token 消耗")).to_be_checked()
+        expect(view.locator("#groups-empty")).to_have_text("该时段暂无请求")
+        self.store.record(event("missing", model_id="unmeasured"), at=today)
+        view.locator("#refresh").click()
+        expect(view.locator("#groups-empty")).to_have_text("该时段的请求没有 Token 计数")
+        self.store.record(
+            event(
+                "zero",
+                model_id="zero",
+                token_total=0,
+                token_input=0,
+                token_output=0,
+                token_cached=0,
+            ),
+            at=today,
+        )
+        view.locator("#refresh").click()
+        expect(view.locator(".rank-count")).to_have_text("0 Token")
+        expect(view.locator(".rank-share")).to_have_text("—")
+        self.assertEqual(view.locator(".rank-fill").evaluate("e => e.style.width"), "0%")
+        for i in range(6):
+            self.store.record(
+                event(
+                    str(i),
+                    model_id=f"small/{i}",
+                    token_total=10,
+                    token_input=7,
+                    token_output=3,
+                    token_cached=2,
+                ),
+                at=today,
+            )
+        self.store.record(
+            event(
+                "large",
+                model_id="rare/large",
+                session="large-session",
+                code="timeout",
+                token_total=60,
+                token_input=45,
+                token_output=15,
+                token_cached=5,
+            ),
+            at=today,
+        )
+        self.store.record(
+            event(
+                "older",
+                model_id="old/large",
+                token_total=120,
+                token_input=80,
+                token_output=40,
+                token_cached=10,
+            ),
+            at=today - timedelta(days=9),
+        )
+        view.locator("#refresh").click()
+        expect(view.locator(".rank-name").first).to_have_text("old/large")
+        view.locator("#range").select_option("7")
+        expect(view.locator(".rank-name").first).to_have_text("rare/large")
+        expect(view.locator(".rank")).to_have_count(5)
+        expect(view.locator(".rank-count").first).to_have_text("60 Token")
+        expect(view.locator(".rank-share").first).to_have_text("50%")
+        expect(view.locator("#rank-basis")).to_contain_text("8 / 9")
+        view.get_by_text("查看分组明细（最多 20 项）").click()
+        expect(view.locator("#groups tr").first.locator("td")).to_have_text(
+            ["rare/large", "60", "45", "15", "5", "1 / 1"]
+        )
+        expect(view.locator("#groups tr")).to_have_count(8)
+        view.locator("#dimension").select_option("code")
+        expect(view.locator(".rank-count")).to_have_text(["60 Token", "60 Token"])
+        view.locator("#dimension").select_option("session")
+        expect(view.locator("#groups")).to_contain_text("large-session")
+        self.assertTrue(view.locator("html").evaluate("e => e.scrollWidth <= e.clientWidth"))
+        view.get_by_role("radio", name="请求次数").check()
+        expect(view.locator(".rank-count").first).to_have_text("8 次")
+        expect(view.locator("#group-columns")).to_contain_text("会话复用")
+
     def test_rare_outcomes_do_not_round_to_zero_or_unanimous_success(self):
         from playwright.sync_api import expect
 
