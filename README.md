@@ -6,7 +6,7 @@
 
 ## 安装
 
-在 AstrBot WebUI 的**插件管理**中通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 v0.4.0 的 Source code (zip)。[下载发布包](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.4.0.zip)
+在 AstrBot WebUI 的**插件管理**中通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 v0.4.1 的 Source code (zip)。[下载发布包](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.4.1.zip)
 
 需要 Linux、Python 3.12+ 和 AstrBot 4.29.4 或兼容的 4.x。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
@@ -16,7 +16,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.4.0 .
+  -t astrbot-with-opencode:0.4.1 .
 ```
 
 容器部署请将下面的专用认证目录放在持久卷中。使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
