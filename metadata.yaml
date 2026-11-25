@@ -2,7 +2,7 @@ name: astrbot_plugin_opencode
 display_name: OpenCode CLI
 short_desc: 使用官方 OpenCode CLI 的 AstrBot 原生聊天 Provider。
 desc: 通过 ACP 使用指定的 OpenCode 模型。支持流式文本、会话复用、兼容模型的图片输入、请求排队和 WebUI Token 用量统计。
-version: 0.4.1
+version: 0.5.0
 author: drshenmiao-hash
 repo: https://github.com/drshenmiao-hash/astrbot_plugin_opencode
 astrbot_version: ">=4.29.4,<5"

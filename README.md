@@ -6,7 +6,7 @@
 
 ## 安装
 
-在 AstrBot WebUI 的**插件管理**中通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 v0.4.1 的 Source code (zip)。[下载发布包](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.4.1.zip)
+在 AstrBot WebUI 的**插件管理**中通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 v0.5.0 的 Source code (zip)。[下载发布包](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.5.0.zip)
 
 需要 Linux、Python 3.12+ 和 AstrBot 4.29.4 或兼容的 4.x。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
 
@@ -16,7 +16,7 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.4.1 .
+  -t astrbot-with-opencode:0.5.0 .
 ```
 
 容器部署请将下面的专用认证目录放在持久卷中。使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
@@ -49,7 +49,9 @@ OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片�
 
 运行时创建临时 HOME 和空工作目录，只复制选定服务商的认证条目。OpenCode 使用专用文本 agent、拒绝工具权限，ACP 也拒绝权限请求。应用按固定清单传递环境变量，以 bubblewrap 隔离文件和进程视图。插件管理 `opencode acp` 子进程，通过标准输入输出交换 JSON-RPC。CLI 内部 HTTP 服务绑定回环地址并使用每次启动生成的密码。用户无需启动 `opencode serve` 或填写远程 API 地址。CLI 需要网络访问所选服务商。容器内如果无法创建隔离，插件会返回错误。
 
-登录 AstrBot WebUI，在 OpenCode 插件详情打开 **用量与运行状态**。页面显示当前模型、CLI 状态、排队和执行中的请求数，也可以查看近 7、30 或 90 天的请求趋势、成功率、耗时、流量和进程／会话复用情况。在「每日趋势」切换请求次数、Token 用量或平均耗时，点选或拖动图表查看某天的数值，也可用方向键切换日期。Token 详情显示当天有计数的请求数。「请求分布」显示前 5 项占全部请求的比例，可按模型、匿名会话或结果切换，展开可查前 20 项。聊天中的管理员命令 `/opencode_usage` 仍可使用，附加 `session`、`day`、`model` 可查看分组。
+登录 AstrBot WebUI，在 OpenCode 插件详情打开 **用量与运行状态**。页面显示当前模型、CLI 状态、排队和执行中的请求数，也可以查看近 7、30 或 90 天的请求趋势、成功率、耗时、流量和进程／会话复用情况。在「每日趋势」切换请求次数、Token 用量或平均耗时，点选或拖动图表查看某天的数值，也可用方向键切换日期。Token 详情显示当天有计数的请求数。聊天中的管理员命令 `/opencode_usage` 仍可使用，附加 `session`、`day`、`model` 可查看分组。
+
+在**用量排行 → Token 消耗**查看所选时段哪些模型用了最多 Token，也可切到匿名会话或请求结果。图表显示前 5 项，百分比按时段内所有已记录的总 Token 计算。展开前 20 项明细可查看输入、输出、缓存命中，以及每组有计数的请求数。仅有缺失计数的组不参与 Token 排名；记录为 0 的组可上榜，总量为 0 时占比显示为 `—`。切回**请求次数**可对照调用量。
 
 日期按 UTC 划分。每次处理尝试单独记录，包含失败、重试和缓存命中。**Token 用量**读取 OpenCode 1.19.6 写入临时会话库的计数，显示总量、输入、输出和缓存命中，支持按模型、匿名会话和日期查看。输入包含缓存读写，输出包含推理 Token。历史记录、回放和服务商未提供的计数显示为 `—`。插件只保存数字和请求元数据，统计库可沿用。费用和额度以模型服务商的账单为准。
 
