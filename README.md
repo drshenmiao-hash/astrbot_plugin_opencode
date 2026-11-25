@@ -82,7 +82,9 @@ OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official
 | `session_missing` / `process_exited` | 当前请求已失败。再次发送会从宿主历史重建；流中断前可能已显示部分回复。 |
 | `timeout` / `queue_timeout` | 前者已开始执行并进入取消流程，重发前可核对用量。后者在排队阶段到期。 |
 
-在 WebUI 插件管理中检查更新并更新到 v0.3.0，也可上传 Release ZIP 覆盖安装。配置字段、原生模型 ID 和统计库兼容旧版，升级后在用量页确认所选模型。新的会话隔离规则会生成新的匿名统计标签，旧记录仍可查询。回退时可上传旧版 Release ZIP。
+要升级到指定版本，在本仓库的 GitHub Release 下载 **Source code (zip)**，在 WebUI 的**插件管理 → ＋ → 从文件安装**上传 ZIP。同名插件会覆盖安装。通过仓库 URL 安装的用户也可在插件卡片的**更多 → 重新安装**获取该仓库默认分支的当前版本。AstrBot 4.29.4 的市场更新提示取决于安装来源，选择来源时请核对仓库所有者 `drshenmiao-hash`。
+
+配置字段、原生模型 ID 和统计库兼容旧版，升级后在用量页确认所选模型。新的会话隔离规则会生成新的匿名统计标签，旧记录仍可查询。回退时可上传旧版 Release ZIP。
 
 会话、图片和校验恢复逻辑改编自 [astrbot_plugin_cursor](https://github.com/drshenmiao-hash/astrbot_plugin_cursor)，原生 Provider 注册与重载流程借鉴 [astrbot_plugin_openai_oauth](https://github.com/wcqqq1214/astrbot_plugin_openai_oauth)。
 
