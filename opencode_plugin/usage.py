@@ -199,7 +199,9 @@ class UsageStore:
             total = dict(db.execute(f"SELECT {_TOTALS} {where}", date_filter).fetchone())
             day_rows = db.execute(
                 f"""SELECT day AS label, COUNT(*) AS requests, SUM(code != 'ok') AS failed,
-                    SUM(token_total) AS token_total {where} GROUP BY day""",
+                    SUM(token_total) AS token_total, COUNT(token_total) AS token_attempts,
+                    AVG(duration_ms) AS duration_avg_ms, AVG(queue_ms) AS queue_avg_ms
+                    {where} GROUP BY day""",
                 date_filter,
             )
             trend = {row["label"]: dict(row) for row in day_rows}
@@ -221,7 +223,18 @@ class UsageStore:
             "end": date_filter[1],
             "totals": total,
             "trend": [
-                trend.get(label, {"label": label, "requests": 0, "failed": 0, "token_total": None})
+                trend.get(
+                    label,
+                    {
+                        "label": label,
+                        "requests": 0,
+                        "failed": 0,
+                        "token_total": None,
+                        "token_attempts": 0,
+                        "duration_avg_ms": None,
+                        "queue_avg_ms": None,
+                    },
+                )
                 for label in labels
             ],
             "groups": groups,

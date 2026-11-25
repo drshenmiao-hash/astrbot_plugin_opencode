@@ -43,6 +43,34 @@ class DashboardQueries(unittest.TestCase):
         )
         self.assertEqual(sum(row["requests"] for row in long["trend"]), 3)
 
+    def test_daily_metrics_distinguish_missing_zero_and_partial_coverage(self):
+        today = datetime.now(timezone.utc)
+        self.store.record(event("missing"), at=today - timedelta(days=2))
+        self.store.record(
+            event("zero", token_total=0, token_input=0, token_output=0, token_cached=0),
+            at=today - timedelta(days=1),
+        )
+        self.store.record(event("legacy", duration_ms=20, queue_ms=0), at=today)
+        self.store.record(
+            event(
+                "measured",
+                duration_ms=81,
+                queue_ms=11,
+                token_total=12,
+                token_input=10,
+                token_output=2,
+                token_cached=0,
+            ),
+            at=today,
+        )
+        empty, missing, zero, partial = self.store.dashboard(7)["trend"][-4:]
+        self.assertIsNone(empty["duration_avg_ms"])
+        self.assertIsNone(empty["queue_avg_ms"])
+        self.assertEqual((missing["token_total"], missing["token_attempts"]), (None, 0))
+        self.assertEqual((zero["token_total"], zero["token_attempts"]), (0, 1))
+        self.assertEqual((partial["token_total"], partial["token_attempts"]), (12, 1))
+        self.assertEqual((partial["duration_avg_ms"], partial["queue_avg_ms"]), (50.5, 5.5))
+
     def test_empty_database_and_failed_write_still_readable(self):
         self.assertEqual(self.store.dashboard(90)["totals"]["requests"], 0)
         self.store.record(event("stored"))
