@@ -206,6 +206,8 @@ class UsageViewTests(unittest.TestCase):
         for i in range(2499):
             self.store.record(event(str(i)), at=older)
         self.store.record(event("timeout", code="timeout"))
+        # Finish building the fixture before starting the browser assertion timer.
+        self.store.flush()
         self.page.goto("http://usage.test/")
         expect(self.view.locator("#success")).to_have_text(">99.9%")
         self.view.locator("#dimension").select_option("code")
