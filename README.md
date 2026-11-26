@@ -4,11 +4,17 @@
 
 插件支持流式文本、兼容模型的图片输入、会话复用、system 增量、排队提示「呜呜等一下」、首段输出前特定上游错误的单次重试和本地用量管理页。AstrBot 继续管理人格、多轮历史和备用模型。模型用量由你在 OpenCode 配置的服务商结算。
 
-## 安装
+## 从安装到第一次对话
 
-在 AstrBot WebUI 的**插件管理**中通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 v0.5.0 的 Source code (zip)。[下载发布包](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.5.0.zip)
+1. 在 AstrBot WebUI 的**插件管理 → ＋**通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 Release 的 **Source code (zip)**。[下载 v0.6.0](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.6.0.zip)
+2. 使用面板管理员账号打开插件详情中的**环境与配置**。页面会自动检查，先按「下一步」处理当前缺项。Docker 或 1Panel 中，页面看到的是 **AstrBot 容器内部**。
+3. 按下方对应部署方式准备 OpenCode 和默认启用的 bubblewrap。若发现 PATH 候选，在插件设置中填写可用的绝对路径。设置由你保存。
+4. 为要使用的服务商创建专用 API Key 认证文件，将完整的 `provider/model` 填入 `model_id`。**保存并重载本插件**，再打开环境页。仅补装文件或修正权限后，也可以点**重新检查环境**查看结果。
+5. 模型项出现成功的 ACP 记录后，管理员在目标会话发送 `/provider`，找到 `opencode_cli:provider/model`，发送 `/provider 序号`。发一条消息验证服务商生成，再追问一次验证连续对话。**用量与运行状态**可查看成功次数和会话复用。
 
-需要 Linux、Python 3.12+ 和 AstrBot 4.29.4 或兼容的 4.x。OpenCode ACP 对接以官方 CLI 1.19.6 为基准。图片校验依赖的 Pillow 已在 `requirements.txt` 声明。在 **AstrBot 实际运行的环境**中安装官方原生 `opencode` 二进制和 `bubblewrap`。
+### 在 Linux 或 Docker 中准备依赖
+
+需要 Linux、Python 3.12+ 和 AstrBot 4.29.4 或兼容的 4.x。OpenCode ACP 对接以官方原生 CLI 1.19.6 为测试基准。其他版本在环境页显示「兼容性未验证」。
 
 - 原生 Ubuntu 可通过 `apt install bubblewrap` 安装隔离工具，并从 [OpenCode 官方发布页](https://github.com/anomalyco/opencode/releases/tag/v1.19.6) 安装对应架构的二进制。将解压的 `opencode` 放在 `/usr/local/bin/opencode`，或在插件设置中指定其绝对路径。可先运行 `opencode --version` 核对版本。
 - Ubuntu 上的 Docker 或 1Panel 部署可以在独立测试编排中使用下面的镜像配方。配方面向 Linux amd64，基础镜像须有 apt。用你的 AstrBot 镜像标签替换示例变量，保留原有数据卷与启动设置。如果基础镜像使用非 root 用户，用 `--build-arg ASTRBOT_USER=原用户` 保留该用户。
@@ -16,8 +22,12 @@
 ```bash
 docker build -f Dockerfile.astrbot \
   --build-arg ASTRBOT_IMAGE=your-astrbot-image:tag \
-  -t astrbot-with-opencode:0.5.0 .
+  -t astrbot-with-opencode:0.6.0 .
 ```
+
+仅构建镜像不会改变正在运行的容器。由部署管理员在原编排中选择新镜像，保留数据卷；如果 bubblewrap 无法创建所需命名空间，请管理员核对容器和内核限制。插件不会修改镜像或运行参数。
+
+### 配置专用认证与模型
 
 容器部署请将下面的专用认证目录放在持久卷中。使用 AstrBot 运行用户，在相同环境登录你打算用的服务商，并选择 API Key 登录方式。独立 XDG 目录可以避免复用个人开发环境的认证。
 
@@ -29,9 +39,15 @@ chmod 600 "$OPENCODE_AUTH_DATA/opencode/auth.json"
 XDG_DATA_HOME="$OPENCODE_AUTH_DATA" /usr/local/bin/opencode models
 ```
 
-1. 打开插件设置，填写 `model_id`，使用上一步列出的完整 `provider/model`。核对 CLI 和专用 `auth.json` 的路径，保存并重载。
-2. 在插件详情打开**用量与运行状态**。出现所选模型和「等待请求」表示 ACP 握手、模型目录和聊天模式校验通过。首条消息才会使用服务商凭证生成回答。
-3. 管理员在目标会话发送 `/provider`，找到 `opencode_cli:provider/model` 对应的序号，然后发送 `/provider 序号`。发送「请记住蓝色」，再问「刚才是什么颜色？」。可在用量页核对成功次数和会话复用。AstrBot 开启流式回复时，插件逐段传递 ACP 文本，并返回一条完整终稿。
+示例使用默认 CLI 路径，安装在其他位置时用实际绝对路径。将最后一条命令列出的完整模型 ID 填入插件设置。认证文件必须由 AstrBot 运行用户所有并可读，其他用户不得访问。环境页只校验文件权限、JSON 和所选服务商的 API Key 条目。实际密钥有效性、额度及上游响应由首次聊天验证。[OpenCode 认证与模型命令](https://opencode.ai/docs/cli/)
+
+### 读懂环境检查
+
+- **需要处理**给出可操作的原因，例如路径无效、容器不能创建隔离、认证条目缺失或模型不在上次 ACP 目录中。每项还列出其检测依据。
+- **未验证**可能表示版本未知、探针超时或尚无本次加载的 ACP 记录。开启沙盒时，须先能创建隔离，才会在其中执行 CLI 版本检查。管理员显式关闭后，沙盒项显示**未启用**。
+- **重新检查环境**只运行本地版本和隔离探针并读取配置文件，不登录服务商、不生成消息。自动检查在首次打开页面时运行；30 秒内复用结果，手动刷新最短间隔 2 秒。ACP 状态读取当前实例已有记录；修改设置后须保存并重载本插件，重载会结束本插件的在途请求。
+
+### 会话与模型切换
 
 OpenCode 会话在内存中按 Provider、消息来源、发送者和 AstrBot 会话标识区分。同一会话的请求串行。群聊是否包含其他成员的历史取决于 AstrBot 的群聊配置。历史改变、插件重载或进程重启后，下次请求会从 AstrBot 提供的历史重建会话；没有稳定标识的调用每次新建。
 
@@ -47,7 +63,9 @@ OpenCode 1.19.6 通过 ACP 接收图文和多图。插件在首次使用图片�
 
 ## 隔离与统计
 
-运行时创建临时 HOME 和空工作目录，只复制选定服务商的认证条目。OpenCode 使用专用文本 agent、拒绝工具权限，ACP 也拒绝权限请求。应用按固定清单传递环境变量，以 bubblewrap 隔离文件和进程视图。插件管理 `opencode acp` 子进程，通过标准输入输出交换 JSON-RPC。CLI 内部 HTTP 服务绑定回环地址并使用每次启动生成的密码。用户无需启动 `opencode serve` 或填写远程 API 地址。CLI 需要网络访问所选服务商。容器内如果无法创建隔离，插件会返回错误。
+运行时创建临时 HOME 和空工作目录，只复制选定服务商的认证条目。OpenCode 使用专用文本 agent、拒绝工具权限，ACP 也拒绝权限请求。应用按固定清单传递环境变量，默认以 bubblewrap 隔离文件和进程视图。插件管理 `opencode acp` 子进程，通过标准输入输出交换 JSON-RPC。CLI 内部 HTTP 服务绑定回环地址并使用每次启动生成的密码。用户无需启动 `opencode serve` 或填写远程 API 地址。CLI 需要网络访问所选服务商。启用隔离时，创建失败会返回错误。
+
+**可选的直接运行模式。** 管理员可在插件配置中关闭「启用 bubblewrap 文件与进程隔离」（`sandbox_enabled`），保存并重载本插件。此时无需安装 bubblewrap。CLI、ACP 会话和图片能力查询使用真实的临时工作目录、独立 HOME 和 XDG 目录，只复制所选服务商密钥。**进程具有 AstrBot 运行用户的文件访问权限。纯聊天 Agent 和禁止工具调用不能替代操作系统隔离。** 环境页在检测到 root 或有效 Linux capabilities 时额外提示风险。建议以低权限用户或受限容器运行。重新开启后，再次保存并重载即可恢复 bubblewrap。
 
 登录 AstrBot WebUI，在 OpenCode 插件详情打开 **用量与运行状态**。页面显示当前模型、CLI 状态、排队和执行中的请求数，也可以查看近 7、30 或 90 天的请求趋势、成功率、耗时、流量和进程／会话复用情况。在「每日趋势」切换请求次数、Token 用量或平均耗时，点选或拖动图表查看某天的数值，也可用方向键切换日期。Token 详情显示当天有计数的请求数。聊天中的管理员命令 `/opencode_usage` 仍可使用，附加 `session`、`day`、`model` 可查看分组。
 
@@ -67,9 +85,9 @@ CLI、认证或模型校验失败时，用量页仍会显示历史记录和启�
 python -m unittest discover -s tests
 ```
 
-在测试环境安装 Python Playwright 后，设置 `OPENCODE_TEST_CHROMIUM` 为 Chromium 的可执行文件路径，可运行 `python -m unittest tests.test_usage_view -v` 检查图表交互。
+在测试环境安装 Python Playwright 后，设置 `OPENCODE_TEST_CHROMIUM` 为 Chromium 的可执行文件路径，可运行 `python -m unittest tests.test_usage_view -v` 检查图表交互，运行 `python -m unittest tests.test_environment_view -v` 检查首次配置页。
 
-默认测试使用模拟 ACP 对端。下面的可选测试通过 bubblewrap 启动官方 CLI 1.19.6，把上游指向本地模拟模型。它验证两轮文本复用、Token 读取、认证报错，以及真实 CLI 向本地模型替身转发图片字节。还验证纯文本模型在发出上游请求前拒绝图片。
+默认测试使用模拟 ACP 对端。下面的可选测试分别在默认沙盒和直接运行模式启动官方 CLI 1.19.6，把上游指向本地模拟模型。它验证两轮文本复用、Token 读取、认证报错，以及真实 CLI 向本地模型替身转发图片字节。还验证纯文本模型在发出上游请求前拒绝图片。
 
 ```bash
 OPENCODE_TEST_BIN=/usr/local/bin/opencode python -m unittest tests.test_official_cli -v
