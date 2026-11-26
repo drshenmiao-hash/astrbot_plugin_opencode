@@ -42,10 +42,9 @@ async function load(manual) {
   try {
     const bridge = window.AstrBotPluginView;
     if (!bridge || window.parent === window) throw new Error();
-    const data = await Promise.race([
-      bridge.ready().then(() => bridge.apiPost("environment/check", {refresh: manual})),
-      new Promise((_, reject) => { timer = setTimeout(reject, 15000); }),
-    ]);
+    const deadline = new Promise((_, reject) => { timer = setTimeout(reject, 15000); });
+    await Promise.race([bridge.ready(), deadline]);
+    const data = await Promise.race([bridge.apiPost("environment/check", {refresh: manual}), deadline]);
     if (!Array.isArray(data?.items) || !data.next_step) throw new Error();
     render(data.items);
     next.textContent = data.next_step;

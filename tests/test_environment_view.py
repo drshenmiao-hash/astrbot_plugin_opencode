@@ -20,7 +20,10 @@ class EnvironmentViewTests(unittest.TestCase):
         window.posts = [];
         window.addEventListener("message", ({data, source}) => {
           const send = msg => source.postMessage({channel: "astrbot-plugin-page", ...msg}, "*");
-          if (data.kind === "ready") send({kind: "context", context: {}});
+          if (data.kind === "ready") {
+            window.ready = () => send({kind: "context", context: {}});
+            if (!location.search) ready();
+          }
           if (data.kind !== "request") return;
           posts.push(data);
           window.respond = result => send({kind: "response", requestId: data.requestId, ...result});
@@ -84,4 +87,14 @@ class EnvironmentViewTests(unittest.TestCase):
             self.assertEqual(
                 frame.locator("main").evaluate("e => e.scrollWidth <= e.clientWidth"), True
             )
+            page.clock.install()
+            page.goto("http://env.test/?hold-ready")
+            expect(button).to_be_disabled()
+            page.clock.fast_forward(16000)
+            expect(button).to_be_enabled()
+            expect(frame.get_by_text("未验证", exact=True)).to_have_count(5)
+            page.evaluate("ready()")
+            button.click()
+            page.wait_for_function("posts.length >= 1")
+            self.assertEqual(page.evaluate("posts.map(p => p.body.refresh)"), [True])
             browser.close()

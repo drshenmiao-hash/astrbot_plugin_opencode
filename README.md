@@ -7,10 +7,10 @@
 ## 从安装到第一次对话
 
 1. 在 AstrBot WebUI 的**插件管理 → ＋**通过仓库 URL 安装，填写 `https://github.com/drshenmiao-hash/astrbot_plugin_opencode`。离线安装可上传 Release 的 **Source code (zip)**。[下载 v0.6.0](https://github.com/drshenmiao-hash/astrbot_plugin_opencode/archive/refs/tags/v0.6.0.zip)
-2. 使用面板管理员账号打开插件详情中的**环境与配置**。页面会自动检查，先按「下一步」处理当前缺项。Docker 或 1Panel 中，页面看到的是 **AstrBot 容器内部**。
+2. 使用面板管理员账号打开插件详情中的**环境与配置**。如果详情显示英文目录名，在**插件行为 → 页面**找到 `environment`，点该行的**打开**。页面会自动检查，先按「下一步」处理当前缺项。Docker 或 1Panel 中，页面看到的是 **AstrBot 容器内部**。
 3. 按下方对应部署方式准备 OpenCode 和默认启用的 bubblewrap。若发现 PATH 候选，在插件设置中填写可用的绝对路径。设置由你保存。
 4. 为要使用的服务商创建专用 API Key 认证文件，将完整的 `provider/model` 填入 `model_id`。**保存并重载本插件**，再打开环境页。仅补装文件或修正权限后，也可以点**重新检查环境**查看结果。
-5. 模型项出现成功的 ACP 记录后，管理员在目标会话发送 `/provider`，找到 `opencode_cli:provider/model`，发送 `/provider 序号`。发一条消息验证服务商生成，再追问一次验证连续对话。**用量与运行状态**可查看成功次数和会话复用。
+5. 模型项出现成功的 ACP 记录后，管理员在目标会话发送 `/provider`，找到 `opencode_cli:provider/model`，发送 `/provider 序号`。发一条消息验证服务商生成，再追问一次验证连续对话。**用量与运行状态**可查看成功次数和会话复用；详情页中对应 `usage` 行的**打开**。
 
 ### 在 Linux 或 Docker 中准备依赖
 
