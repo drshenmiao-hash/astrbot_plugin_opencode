@@ -191,6 +191,16 @@ async def exercise_host(phase):
             try:
                 chunk = await asyncio.wait_for(anext(stream), 15)
                 assert chunk.is_chunk and chunk.completion_text == "real"
+                star = ctx.get_registered_star(PLUGIN)
+                engine = current.engine
+                active_process = engine.owner.process
+                before_requests = len(requests)
+                report = await star.star_cls._environment_page.checks.read(refresh=True)
+                items = {r["id"]: r for r in report["items"]}
+                assert items["sandbox"]["status"] == ("pass" if phase == "install" else "disabled")
+                assert all(items[k]["status"] == "pass" for k in ("cli", "auth", "model")), items
+                assert len(requests) == before_requests
+                assert current.engine is engine and engine.owner.process is active_process
                 hold_reply.set()
                 rest = [item async for item in stream]
                 assert [(item.is_chunk, item.completion_text) for item in rest] == [
@@ -245,6 +255,36 @@ async def exercise_host(phase):
                 assert NATIVE not in providers.inst_map and not providers.provider_insts
                 await plugins.turn_on_plugin(PLUGIN)
                 assert NATIVE in providers.inst_map
+            star = ctx.get_registered_star(PLUGIN)
+            page = await PluginPageService(plugins).get_plugin_page(star, "environment")
+            assert page.name == "environment"
+            # Both directions use the real host's plugin-scoped reload.
+            current = providers.inst_map[NATIVE]
+            old_process = current.engine.owner.process if current.engine.owner else None
+            star.config["sandbox_enabled"] = phase != "install"
+            await star.config.save_config_async()
+            assert (await plugins.reload(PLUGIN))[0]
+            if old_process:
+                assert old_process.returncode is not None
+            current = await ctx.get_using_provider_async(umo=origin)
+            assert current is providers.inst_map[NATIVE]
+            hold_reply.clear()
+            stream = current.text_chat_stream(prompt="after mode change", conversation_id="switch")
+            try:
+                assert (await asyncio.wait_for(anext(stream), 15)).is_chunk
+                active = current.engine.owner.process
+                scratch = Path(current.engine.owner.scratch.name)
+                await stream.aclose()
+                async with asyncio.timeout(8):
+                    while current.engine.active:
+                        await asyncio.sleep(0.01)
+                assert not current.engine.client.closed and not current.engine.client.pending
+            finally:
+                hold_reply.set()
+                await stream.aclose()
+            await plugins.turn_off_plugin(PLUGIN)
+            assert active.returncode is not None and not scratch.exists()
+            await plugins.turn_on_plugin(PLUGIN)
             star = ctx.get_registered_star(PLUGIN)
             page = await PluginPageService(plugins).get_plugin_page(star, "usage")
             assert page.name == "usage"

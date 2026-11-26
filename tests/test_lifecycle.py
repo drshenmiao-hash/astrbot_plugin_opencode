@@ -81,7 +81,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(report["validated"])
         self.assertEqual(report["totals"]["requests"], 1)
         self.assertTrue(replacement._usage_page.active)
-        self.assertEqual(len(self.context.registered_web_apis), 1)
+        self.assertEqual(len(self.context.registered_web_apis), 2)
         self.assertTrue(old_engine.closed)
         self.assertEqual(old_engine.references, 0)
         with self.assertRaises(main.OpenCodeError) as error:

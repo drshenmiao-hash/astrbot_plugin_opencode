@@ -257,6 +257,14 @@ async def validate_configured_model():
     return resolved
 
 
+def cached_model_check(model):
+    """Inspect only the catalog and startup outcome of this loaded configuration."""
+    if not model or not _settings or _settings["requested_model"] != model:
+        return False, None
+    verified = bool(_available_models and _settings["model"] == model and model in _available_models)
+    return verified, _startup_failure
+
+
 def resolve_model_id(requested):
     _check_startup()
     return _resolve_catalog_model(requested)

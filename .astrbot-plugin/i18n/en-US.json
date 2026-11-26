@@ -1,5 +1,6 @@
 {
   "views": {
+    "environment": {"title": "Environment & setup"},
     "usage": {"title": "Usage & runtime"}
   }
 }

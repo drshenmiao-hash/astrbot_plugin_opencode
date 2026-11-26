@@ -9,7 +9,7 @@ from astrbot.api.star import Context, Star
 from .opencode_plugin import __version__, runtime
 from .opencode_plugin.errors import OpenCodeError
 from .opencode_plugin.provider import OpenCodeCLIProvider, register_adapter, unregister_adapter
-from .opencode_plugin.web import UsagePage
+from .opencode_plugin.web import EnvironmentPage, UsagePage
 
 __all__ = ["OpenCodeCLIPlugin", "OpenCodeCLIProvider"]
 
@@ -24,11 +24,13 @@ class OpenCodeCLIPlugin(Star):
             runtime.configure({})
             self._config_error = exc.code
         self._usage_page = UsagePage()
+        self._environment_page = EnvironmentPage(config, self._config_error)
         self._adapter_type = None
 
     async def initialize(self):
         self._adapter_type = register_adapter()
         try:
+            self._environment_page.register(self.context)
             await runtime.open_usage(self.context)
             try:
                 await runtime.stop_providers(self.context, detach=bool(self._config_error))
@@ -47,11 +49,15 @@ class OpenCodeCLIPlugin(Star):
     async def terminate(self):
         if self._adapter_type is None:
             return
+        self._environment_page.close()
         self._usage_page.close()
         unregister_adapter(self._adapter_type)
         self._adapter_type = None
         try:
-            await runtime.stop_validation()
+            try:
+                await self._environment_page.checks.close()
+            finally:
+                await runtime.stop_validation()
         finally:
             try:
                 await runtime.stop_providers(self.context, detach=True)

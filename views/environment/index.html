@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenCode 环境与配置</title>
+  <link rel="stylesheet" href="./style.css">
+  <script src="/api/plugin/page/bridge-sdk.js"></script>
+  <script defer src="./app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><h1>环境与配置</h1><p>检查 AstrBot 所在环境，准备 OpenCode 的首次对话。</p></div>
+      <button id="refresh" type="button">重新检查环境</button>
+    </header>
+    <section class="next" aria-labelledby="next-title">
+      <h2 id="next-title">下一步</h2>
+      <p id="next" role="status">正在检查本地环境…</p>
+    </section>
+    <p id="time"></p>
+    <div id="checks" aria-label="环境检查结果"></div>
+    <footer>检查只读取已加载的插件配置。修改设置后请保存并重载本插件；重新检查不会调用模型或重启聊天进程。</footer>
+  </main>
+</body>
+</html>

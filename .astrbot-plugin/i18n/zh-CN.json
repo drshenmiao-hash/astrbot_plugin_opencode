@@ -1,5 +1,6 @@
 {
   "views": {
+    "environment": {"title": "环境与配置"},
     "usage": {"title": "用量与运行状态"}
   }
 }
