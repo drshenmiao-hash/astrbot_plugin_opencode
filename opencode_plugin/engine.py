@@ -192,6 +192,7 @@ class Engine:
             code = exc.code if isinstance(exc, OpenCodeError) else "cli_failed"
             if (
                 client is not None
+                and self.cfg["sandbox_enabled"]
                 and isinstance(exc, OpenCodeError)
                 and exc.code == "process_exited"
             ):

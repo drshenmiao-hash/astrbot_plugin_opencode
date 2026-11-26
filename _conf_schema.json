@@ -16,6 +16,12 @@
     "type": "string",
     "default": "/usr/local/bin/opencode"
   },
+  "sandbox_enabled": {
+    "description": "启用 bubblewrap 文件与进程隔离",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后 OpenCode 可访问 AstrBot 运行用户有权读取的文件。纯聊天工具限制不能替代操作系统隔离。请优先使用低权限用户或受限容器。保存并重载本插件后生效。"
+  },
   "bubblewrap_binary": {
     "description": "bubblewrap 绝对路径",
     "type": "string",

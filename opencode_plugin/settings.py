@@ -5,6 +5,22 @@ from pathlib import Path
 from .errors import MESSAGES, OpenCodeError
 from .protocol import explicit_model
 
+PATH_DEFAULTS = {
+    "cli_binary": "/usr/local/bin/opencode",
+    "bubblewrap_binary": "/usr/bin/bwrap",
+    "auth_path": "~/.local/share/astrbot-opencode/opencode/auth.json",
+}
+
+
+def configured_path(config, name):
+    value = config.get(name, PATH_DEFAULTS[name])
+    if not isinstance(value, str) or any(c in value for c in "\r\n\x00"):
+        raise ValueError
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise ValueError
+    return str(path)
+
 
 def settings_from(config):
     try:
@@ -12,6 +28,9 @@ def settings_from(config):
         if model:
             explicit_model(model)
         cfg = {"model": model, "requested_model": model}
+        cfg["sandbox_enabled"] = config.get("sandbox_enabled", True)
+        if type(cfg["sandbox_enabled"]) is not bool:
+            raise ValueError
         notice = config.get("image_unsupported_message", "")
         if not isinstance(notice, str) or len(notice) > 240 or "\x00" in notice:
             raise ValueError
@@ -33,18 +52,10 @@ def settings_from(config):
             if not minimum <= value <= maximum:
                 raise ValueError
             cfg[name] = value
-        for name, default in (
-            ("cli_binary", "/usr/local/bin/opencode"),
-            ("bubblewrap_binary", "/usr/bin/bwrap"),
-            ("auth_path", "~/.local/share/astrbot-opencode/opencode/auth.json"),
-        ):
-            value = config.get(name, default)
-            if not isinstance(value, str) or any(c in value for c in "\r\n\x00"):
-                raise ValueError
-            value = Path(value).expanduser()
-            if not value.is_absolute():
-                raise ValueError
-            cfg[name] = str(value)
+        for name in PATH_DEFAULTS:
+            if name == "bubblewrap_binary" and not cfg["sandbox_enabled"]:
+                continue
+            cfg[name] = configured_path(config, name)
         return cfg
     except OpenCodeError:
         raise

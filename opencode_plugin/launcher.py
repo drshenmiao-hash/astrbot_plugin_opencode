@@ -6,6 +6,7 @@ import os
 import secrets
 import signal
 import stat
+import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -15,22 +16,56 @@ CHAT_MODE = "astrbot-chat"
 _MAX_CATALOG_BYTES = 4 * 1024 * 1024
 
 
-def _copy_auth(source, target, provider):
+def read_api_key(source, provider):
     try:
         fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, "rb") as auth:
-            mode = os.fstat(auth.fileno()).st_mode
-            if not stat.S_ISREG(mode) or mode & 0o077:
+        try:
+            info = os.fstat(fd)
+            mode = info.st_mode
+            if (
+                not stat.S_ISREG(mode)
+                or info.st_uid != os.geteuid()
+                or mode & 0o077
+                or not mode & stat.S_IRUSR
+            ):
                 raise OpenCodeError("auth_permissions")
-            data = auth.read(262145)
+            with os.fdopen(fd, "rb", closefd=False) as auth:
+                data = auth.read(262145)
+        finally:
+            os.close(fd)
         if len(data) > 262144:
             raise ValueError
-        entry = json.loads(data).get(provider)
+        entries = json.loads(data)
+        if not isinstance(entries, dict):
+            raise ValueError
+        if not provider:
+            return None
+        entry = entries.get(provider)
         if not isinstance(entry, dict) or entry.get("type") != "api":
             raise OpenCodeError("not_logged_in")
         key = entry.get("key")
         if not isinstance(key, str) or not key.strip():
             raise OpenCodeError("not_logged_in")
+        return key
+    except FileNotFoundError:
+        raise OpenCodeError("auth_missing") from None
+    except (ValueError, RecursionError):
+        raise OpenCodeError("auth_format") from None
+    except OSError:
+        raise OpenCodeError("auth_permissions") from None
+
+
+def _copy_auth(source, target, provider):
+    try:
+        key = read_api_key(source, provider)
+    except OpenCodeError as exc:
+        # Preserve the provider's established chat error codes.
+        if exc.code == "auth_missing":
+            raise OpenCodeError("not_logged_in") from None
+        if exc.code == "auth_format":
+            raise OpenCodeError("auth_permissions") from None
+        raise
+    try:
         target.parent.mkdir(parents=True, mode=0o700)
         with os.fdopen(os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as out:
             json.dump({provider: {"type": "api", "key": key}}, out)
@@ -38,6 +73,59 @@ def _copy_auth(source, target, provider):
         raise OpenCodeError("not_logged_in") from None
     except (OSError, ValueError, AttributeError):
         raise OpenCodeError("auth_permissions") from None
+
+
+def sandbox_prefix(bwrap, protected_paths):
+    roots = [
+        Path(name) for name in ("/usr/bin", "/usr/lib", "/lib", "/lib64") if Path(name).exists()
+    ]
+    system_files = [
+        Path(name)
+        for name in ("/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/ssl/certs")
+        if Path(name).exists()
+    ]
+    for location in protected_paths:
+        if any(
+            Path(location).resolve().is_relative_to(path.resolve())
+            for path in (*roots, *system_files)
+        ):
+            raise OpenCodeError("sandbox_path_conflict")
+    argv = [
+        bwrap,
+        "--unshare-all",
+        "--share-net",
+        "--die-with-parent",
+        "--new-session",
+        "--cap-drop",
+        "ALL",
+    ]
+    for path in roots:
+        argv.extend(["--ro-bind", str(path), str(path)])
+    argv.extend(
+        ["--symlink", "usr/bin", "/bin", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
+    )
+    for path in system_files:
+        argv.extend(["--ro-bind", str(path), str(path)])
+    return argv
+
+
+def sandbox_command(prefix, cli, home, work):
+    return [
+        *prefix,
+        "--ro-bind",
+        str(cli),
+        "/opt/opencode",
+        "--bind",
+        str(home),
+        "/home/opencode",
+        "--bind",
+        str(work),
+        "/work",
+        "--chdir",
+        "/work",
+        "--",
+        "/opt/opencode",
+    ]
 
 
 class ProcessOwner:
@@ -57,31 +145,30 @@ class ProcessOwner:
             return Path(self.scratch.name) / "home/.local/share/opencode/opencode.db"
 
     async def start(self):
+        if sys.platform != "linux":
+            raise OpenCodeError("linux_required")
         cli = Path(self.cfg["cli_binary"]).resolve()
-        bwrap = self.cfg["bubblewrap_binary"]
         if not cli.is_file() or not os.access(cli, os.X_OK):
             raise OpenCodeError("cli_missing")
-        if not os.access(bwrap, os.X_OK):
-            raise OpenCodeError("sandbox_missing")
-        roots = [
-            Path(name) for name in ("/usr/bin", "/usr/lib", "/lib", "/lib64") if Path(name).exists()
-        ]
-        system_files = [
-            Path(name)
-            for name in ("/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/ssl/certs")
-            if Path(name).exists()
-        ]
-        for location in (*self.cfg["protected_paths"], self.cfg["auth_path"]):
-            if any(
-                Path(location).resolve().is_relative_to(path.resolve())
-                for path in (*roots, *system_files)
-            ):
-                raise OpenCodeError("sandbox_path_conflict")
+        prefix = None
+        if self.cfg["sandbox_enabled"]:
+            bwrap = self.cfg["bubblewrap_binary"]
+            if not Path(bwrap).is_file() or not os.access(bwrap, os.X_OK):
+                raise OpenCodeError("sandbox_missing")
+            prefix = sandbox_prefix(bwrap, (*self.cfg["protected_paths"], self.cfg["auth_path"]))
         self.scratch = TemporaryDirectory(prefix="astrbot-opencode-")
         root = Path(self.scratch.name)
         home, work = root / "home", root / "work"
         home.mkdir(mode=0o700)
         work.mkdir(mode=0o700)
+        if prefix is not None:
+            argv = sandbox_command(prefix, cli, home, work)
+            cli_home, cli_work = Path("/home/opencode"), Path("/work")
+            cwd = root
+        else:
+            argv = [str(cli)]
+            cli_home, cli_work = home, work
+            cwd = work
         provider = self.cfg["model"].split("/", 1)[0]
         _copy_auth(self.cfg["auth_path"], home / ".local/share/opencode/auth.json", provider)
         # Only this primary agent is selectable. The global and per-agent
@@ -110,11 +197,11 @@ class ProcessOwner:
         env = {
             "PATH": "/usr/bin:/bin",
             "LANG": "C.UTF-8",
-            "HOME": "/home/opencode",
-            "XDG_DATA_HOME": "/home/opencode/.local/share",
-            "XDG_CONFIG_HOME": "/home/opencode/.config",
-            "XDG_STATE_HOME": "/home/opencode/.local/state",
-            "XDG_CACHE_HOME": "/home/opencode/.cache",
+            "HOME": str(cli_home),
+            "XDG_DATA_HOME": str(cli_home / ".local/share"),
+            "XDG_CONFIG_HOME": str(cli_home / ".config"),
+            "XDG_STATE_HOME": str(cli_home / ".local/state"),
+            "XDG_CACHE_HOME": str(cli_home / ".cache"),
             "OPENCODE_CONFIG_CONTENT": json.dumps(config),
             "OPENCODE_SERVER_PASSWORD": secrets.token_urlsafe(32),
             **dict.fromkeys(
@@ -133,40 +220,18 @@ class ProcessOwner:
                 "1",
             ),
         }
-        argv = [
-            bwrap,
-            "--unshare-all",
-            "--share-net",
-            "--die-with-parent",
-            "--new-session",
-            "--cap-drop",
-            "ALL",
-        ]
-        for path in roots:
-            argv.extend(["--ro-bind", str(path), str(path)])
-        argv.extend(
-            ["--symlink", "usr/bin", "/bin", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
-        )
-        for path in system_files:
-            argv.extend(["--ro-bind", str(path), str(path)])
-        argv.extend(
-            [
-                "--ro-bind",
-                str(cli),
-                "/opt/opencode",
-                "--bind",
-                str(home),
-                "/home/opencode",
-                "--bind",
-                str(work),
-                "/work",
-                "--chdir",
-                "/work",
-            ]
-        )
-        # The explicit env allowlist also keeps the server password out of argv.
-        argv.extend(["--", "/opt/opencode"])
-        self._command = (argv, env, root)
+        if prefix is None:
+            private_tmp = root / "tmp"
+            private_tmp.mkdir(mode=0o700)
+            env.update(
+                TMPDIR=str(private_tmp),
+                GIT_CONFIG_NOSYSTEM="1",
+                GIT_CEILING_DIRECTORIES=str(root),
+                # OpenCode 1.19.6 merges managed settings after inline config.
+                # Keep that lookup inside this dedicated instance as in bubblewrap.
+                OPENCODE_TEST_MANAGED_CONFIG_DIR=str(home / ".managed"),
+            )
+        self._command = (argv, env, cwd)
         try:
             limit = max(self.cfg["context_max_bytes"] * 2, self.cfg["output_max_bytes"]) + 65536
             self.process = await asyncio.create_subprocess_exec(
@@ -180,14 +245,14 @@ class ProcessOwner:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
-                cwd=root,
+                cwd=cwd,
                 start_new_session=True,
                 close_fds=True,
                 limit=limit,
             )
         except OSError:
             raise OpenCodeError("transport") from None
-        return self.process, {"cwd": "/work", "transport": "local"}
+        return self.process, {"cwd": str(cli_work), "transport": "local"}
 
     async def model_supports_images(self):
         """ACP model options lack per-model capabilities; read the same CLI's catalog."""
@@ -236,7 +301,9 @@ class ProcessOwner:
         except (OSError, ValueError, TypeError, KeyError, TimeoutError):
             raise OpenCodeError("image_capability_unverified") from None
         finally:
-            if process is not None and process.returncode is None:
+            if process is not None and (
+                process.returncode is None or not self.cfg["sandbox_enabled"]
+            ):
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
@@ -268,6 +335,12 @@ class ProcessOwner:
                 process.stdin.close()
                 try:
                     await asyncio.wait_for(process.wait(), 2)
+                    if not self.cfg["sandbox_enabled"]:
+                        # Direct children lack bubblewrap's PID namespace teardown.
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                 except asyncio.TimeoutError:
                     try:
                         os.killpg(process.pid, signal.SIGKILL)

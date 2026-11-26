@@ -36,7 +36,13 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
     async def test_text_only_catalog_model_never_sends_an_image_request(self):
         await self.check_cli(TEXT_MODEL, with_images=True, rejects_images=True)
 
-    async def check_cli(self, model, *, with_images=False, rejects_images=False):
+    async def test_direct_mode_chat_auth_and_usage(self):
+        await self.check_cli(MODEL, sandbox=False)
+
+    async def test_direct_mode_image_catalog_and_payload(self):
+        await self.check_cli(VISION_MODEL, with_images=True, sandbox=False)
+
+    async def check_cli(self, model, *, with_images=False, rejects_images=False, sandbox=True):
         provider, slug = model.split("/", 1)
         requests = []
         started = []
@@ -134,6 +140,7 @@ class OfficialCLITests(unittest.IsolatedAsyncioTestCase):
                         {
                             "model_id": model,
                             "cli_binary": CLI,
+                            "sandbox_enabled": sandbox,
                             "auth_path": str(auth),
                             "timeout_seconds": 15,
                         }

@@ -4,7 +4,9 @@ from astrbot.api import logger
 
 MESSAGES = {
     "usage_unavailable": "本地统计库暂不可用。",
-    "auth_permissions": "请检查 OpenCode 专用 auth.json，文件必须可读且仅所有者可访问（0600）。",
+    "auth_missing": "未找到配置的专用认证文件。请用 AstrBot 运行用户在专用目录完成 OpenCode API Key 登录。",
+    "auth_format": "专用认证文件须为有效的 OpenCode JSON 对象（最多 256 KiB）。请核对配置或重新登录。",
+    "auth_permissions": "请检查 OpenCode 专用 auth.json，文件须由 AstrBot 运行用户所有、可读且仅所有者可访问（0600）。",
     "registration_save_failed": "OpenCode 来源或模型配置未能保存，请检查 AstrBot 配置写入权限并重载插件。",
     "model_id_conflict": "OpenCode 模型 ID 已被其他提供商占用，请处理 ID 冲突后重载。",
     "source_id_conflict": "opencode_cli 来源 ID 已被其他提供商占用；未覆盖已有配置，请处理冲突后重载。",
@@ -45,6 +47,7 @@ MESSAGES = {
     "cancel_unconfirmed": "远端取消未确认，已关闭连接；请核对用量。",
     "closed": "OpenCode Provider 已停止。",
     "cleanup_timeout": "OpenCode 进程清理未在期限内完成。",
+    "linux_required": "请在 Linux 系统或 Linux 容器中运行此插件。",
     "cli_missing": "未找到官方 OpenCode CLI。",
     "sandbox_missing": "本地模式缺少 bubblewrap；未降级为无隔离执行。",
     "sandbox_unavailable": "本地文件隔离不可用，请检查内核或容器权限。",
